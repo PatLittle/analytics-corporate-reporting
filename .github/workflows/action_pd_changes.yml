@@ -13,7 +13,7 @@ jobs:
      - name: Set Up Python
        uses: actions/setup-python@v4
        with:
-         python-version: '3.12'
+         python-version: '3.x'
      - name: Install Dependencies
        run: |
          pip install pandas xlsxwriter requests
@@ -28,4 +28,5 @@ jobs:
           git add -A
           git commit -a -m "updates" --allow-empty
           git push -f
+
 
