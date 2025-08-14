@@ -4,14 +4,16 @@
   <meta charset="utf-8" />
   <title>BN ATI Report</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- GCWeb (CDTS) + GC theme -->
   <link rel="stylesheet" href="https://www.canada.ca/etc/designs/canada/cdts/gcweb/v5_0_2/cdts/cdts-styles.css">
   <link rel="stylesheet" href="https://wet-boew.github.io/wet-boew/themes-dist/GCWeb/wet-boew/css/theme.min.css">
+  <!-- DataTables -->
   <link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css">
   <style>
     .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eee;font-size:.85em}
     .muted{color:#555}.w-clip{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mono{font-family:ui-monospace, Menlo, Consolas, monospace}
-    td.small{max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    td.small{max-width:560px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style>
 </head>
 <body vocab="http://schema.org/" typeof="WebPage">
@@ -31,7 +33,8 @@
       <span id="count-m" class="pill">Matches: …</span>
     </section>
 
-    <table id="report" class="wb-tables table table-striped table-hover" data-wb-tables='{"ordering": true, "searching": true, "pageLength": 25}'>
+    <table id="report" class="wb-tables table table-striped table-hover"
+           data-wb-tables='{"ordering": true, "searching": true, "pageLength": 25}'>
       <thead>
         <tr>
           <th>owner_org</th>
@@ -50,30 +53,35 @@
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js" defer></script>
   <script src="https://wet-boew.github.io/wet-boew/wet-boew/js/wet-boew.min.js" defer></script>
   <script src="https://cdn.datatables.net/2.0.8/js/dataTables.min.js" defer></script>
-
   <script>
     (async function () {
       const res = await fetch('./report.json', {cache: 'no-store'});
       const data = await res.json();
 
+      // Stats
       document.getElementById('count-a').textContent  = `A: ${data.meta.counts.A_rows.toLocaleString()}`;
       document.getElementById('count-b').textContent  = `B: ${data.meta.counts.B_rows.toLocaleString()}`;
       document.getElementById('count-c').textContent  = `C: ${data.meta.counts.C_rows.toLocaleString()}`;
       document.getElementById('count-bc').textContent = `BC: ${data.meta.counts.BC_rows.toLocaleString()}`;
       document.getElementById('count-m').textContent  = `Matches: ${data.meta.counts.matches.toLocaleString()}`;
 
+      // Rows
       const tbody = document.querySelector('#report tbody');
       for (const r of data.rows) {
         const tr = document.createElement('tr');
-        const tdOwner = document.createElement('td'); tdOwner.textContent = r.owner_org; tr.appendChild(tdOwner);
-        const tdTN = document.createElement('td'); tdTN.textContent = r.tracking_number; tr.appendChild(tdTN);
-        const tdReq = document.createElement('td'); tdReq.textContent = r.c_request_number || ''; tr.appendChild(tdReq);
-        const tdSum = document.createElement('td'); tdSum.textContent = (r.informal_requests_sum || 0).toLocaleString(); tr.appendChild(tdSum);
-        const tdUID = document.createElement('td'); tdUID.textContent = r.unique_identifiers || ''; tr.appendChild(tdUID);
-        const tdEN = document.createElement('td'); tdEN.className = 'small'; tdEN.textContent = r.summary_en || ''; tr.appendChild(tdEN);
-        const tdFR = document.createElement('td'); tdFR.className = 'small'; tdFR.textContent = r.summary_fr || ''; tr.appendChild(tdFR);
+
+        const tdOwner = document.createElement('td'); tdOwner.textContent = r.owner_org || ''; tr.appendChild(tdOwner);
+        const tdTN    = document.createElement('td'); tdTN.textContent    = r.tracking_number || ''; tr.appendChild(tdTN);
+        const tdReq   = document.createElement('td'); tdReq.textContent   = r.c_request_number || ''; tr.appendChild(tdReq);
+        const tdSum   = document.createElement('td'); tdSum.textContent   = (r.informal_requests_sum || 0).toLocaleString(); tr.appendChild(tdSum);
+        const tdUID   = document.createElement('td'); tdUID.textContent   = r.unique_identifiers || ''; tr.appendChild(tdUID);
+        const tdEN    = document.createElement('td'); tdEN.className='small'; tdEN.textContent = r.summary_en || ''; tr.appendChild(tdEN);
+        const tdFR    = document.createElement('td'); tdFR.className='small'; tdFR.textContent = r.summary_fr || ''; tr.appendChild(tdFR);
+
         tbody.appendChild(tr);
       }
+
+      // Init WET table
       window.wb && window.wb.shell && window.wb.shell.init($(document));
     })();
   </script>
