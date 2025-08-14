@@ -1,5 +1,4 @@
-# .github/workflows/action_bn_ati.yml
-name: Build BN_ATI Report
+name: Build & Deploy BN_ATI Report
 
 on:
   workflow_dispatch:
@@ -10,20 +9,22 @@ on:
       - BN_ATI_REPORT/**
       - .github/workflows/action_bn_ati.yml
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: BN_ATI_REPORT
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-        # optional: cache pip
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -35,16 +36,38 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
-      - name: Build report (CSV → JSON/HTML)
-        run: |
-          python scripts/build_report.py
+      - name: Build report
+        run: python scripts/build_report.py
 
-      - name: Commit artifacts
+      - name: Ensure .nojekyll
+        run: |
+          touch docs/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # path is from the repository root; keep it explicit
+          path: BN_ATI_REPORT/docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+      - name: Commit generated files (optional)
         run: |
           if [[ -n "$(git status --porcelain docs)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add docs/report.json docs/index.html
-            git commit -m "BN_ATI report update ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
+            git commit -m "Update BN_ATI report ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
             git push
           fi
