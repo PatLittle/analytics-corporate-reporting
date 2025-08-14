@@ -2,53 +2,33 @@
 <html lang="en" class="no-js">
 <head>
   <meta charset="utf-8" />
-  <title>Open Data Cross-table Report</title>
+  <title>BN ATI Report</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- GCWeb (CDTS) CSS -->
   <link rel="stylesheet" href="https://www.canada.ca/etc/designs/canada/cdts/gcweb/v5_0_2/cdts/cdts-styles.css">
   <link rel="stylesheet" href="https://wet-boew.github.io/wet-boew/themes-dist/GCWeb/wet-boew/css/theme.min.css">
-  <!-- DataTables -->
   <link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css">
   <style>
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .nowrap { white-space: nowrap; }
-    .pill { display:inline-block; padding:.15rem .4rem; border-radius:999px; background:#eee; font-size:.85em; }
-    .muted { color:#555; }
-    .w-clip { max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eee;font-size:.85em}
+    .muted{color:#555}.w-clip{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mono{font-family:ui-monospace, Menlo, Consolas, monospace}
+    td.small{max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style>
 </head>
 <body vocab="http://schema.org/" typeof="WebPage">
-  <header role="banner">
-    <div id="wb-bnr" class="container">
-      <div class="row">
-        <div class="brand col-xs-6">
-          <object type="image/svg+xml" tabindex="-1" data="https://www.canada.ca/etc/designs/canada/wet-boew/assets/sig-blk-en.svg" aria-label="Government of Canada"></object>
-        </div>
-      </div>
-    </div>
-    <nav class="gcweb-menu" typeof="SiteNavigationElement"></nav>
-  </header>
-
-  <main role="main" property="mainContentOfPage" class="container">
-    <h1 class="mrgn-tp-md">Open Data Cross-table Report</h1>
-    <p class="lead">Finds occurrences of <span class="pill">tracking_number</span> from Resource A inside any field of Resource C, scoped by <span class="pill">owner_org</span>; then attaches the sum of <span class="pill">Number of Informal Requests</span> from Resource B by (<span class="mono">owner_org</span>, <span class="mono">request_number</span>).</p>
-
-    <details class="mrgn-bttm-lg">
-      <summary>Data sources</summary>
-      <ul>
-        <li>A: <span class="mono">299a2e26-5103-4a49-ac3a-53db9fcc06c7</span></li>
-        <li>B: <span class="mono">e664cf3d-6cb7-4aaa-adfa-e459c2552e3e</span></li>
-        <li>C: <span class="mono">19383ca2-b01a-487d-88f7-e1ffbc7d39c2</span></li>
-      </ul>
-      <p class="muted">Built with ckanapi in a GitHub Action. Refreshes on schedule.</p>
-    </details>
+  <main role="main" class="container">
+    <h1 class="mrgn-tp-md">BN ATI Report</h1>
+    <p class="lead">
+      Sum of <span class="pill">Number of Informal Requests</span> from B by (<span class="mono">owner_org</span>, <span class="mono">request_number</span>),
+      merged into C, then filtered where an A <span class="pill">tracking_number</span> appears in <span class="pill">summary_en/summary_fr</span> for the same <span class="pill">owner_org</span>.
+    </p>
 
     <section id="stats" class="mrgn-bttm-lg well well-sm">
       <strong>Summary:</strong>
-      <span id="count-a" class="mrgn-lft-sm pill">A: …</span>
-      <span id="count-b" class="mrgn-lft-sm pill">B: …</span>
-      <span id="count-c" class="mrgn-lft-sm pill">C: …</span>
-      <span id="count-m" class="mrgn-lft-sm pill">Matches: …</span>
+      <span id="count-a" class="pill">A: …</span>
+      <span id="count-b" class="pill">B: …</span>
+      <span id="count-c" class="pill">C: …</span>
+      <span id="count-bc" class="pill">BC: …</span>
+      <span id="count-m" class="pill">Matches: …</span>
     </section>
 
     <table id="report" class="wb-tables table table-striped table-hover" data-wb-tables='{"ordering": true, "searching": true, "pageLength": 25}'>
@@ -56,24 +36,17 @@
         <tr>
           <th>owner_org</th>
           <th>tracking_number</th>
-          <th>request_number (C)</th>
+          <th>request_number</th>
           <th>Informal Requests (sum)</th>
-          <th>Preview (C)</th>
+          <th>Unique Identifier(s)</th>
+          <th>summary_en</th>
+          <th>summary_fr</th>
         </tr>
       </thead>
       <tbody></tbody>
     </table>
   </main>
 
-  <footer id="wb-info">
-    <div class="landscape">
-      <nav class="container wb-navcurr">
-        <h2 class="wb-inv">About this site</h2>
-      </nav>
-    </div>
-  </footer>
-
-  <!-- WET/GCWeb + jQuery + DataTables -->
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js" defer></script>
   <script src="https://wet-boew.github.io/wet-boew/wet-boew/js/wet-boew.min.js" defer></script>
   <script src="https://cdn.datatables.net/2.0.8/js/dataTables.min.js" defer></script>
@@ -83,33 +56,24 @@
       const res = await fetch('./report.json', {cache: 'no-store'});
       const data = await res.json();
 
-      // Stats
-      document.getElementById('count-a').textContent = `A: ${data.meta.counts.A_rows.toLocaleString()}`;
-      document.getElementById('count-b').textContent = `B: ${data.meta.counts.B_rows.toLocaleString()}`;
-      document.getElementById('count-c').textContent = `C: ${data.meta.counts.C_rows.toLocaleString()}`;
-      document.getElementById('count-m').textContent = `Matches: ${data.meta.counts.matches.toLocaleString()}`;
+      document.getElementById('count-a').textContent  = `A: ${data.meta.counts.A_rows.toLocaleString()}`;
+      document.getElementById('count-b').textContent  = `B: ${data.meta.counts.B_rows.toLocaleString()}`;
+      document.getElementById('count-c').textContent  = `C: ${data.meta.counts.C_rows.toLocaleString()}`;
+      document.getElementById('count-bc').textContent = `BC: ${data.meta.counts.BC_rows.toLocaleString()}`;
+      document.getElementById('count-m').textContent  = `Matches: ${data.meta.counts.matches.toLocaleString()}`;
 
-      // Render rows
       const tbody = document.querySelector('#report tbody');
       for (const r of data.rows) {
         const tr = document.createElement('tr');
-
         const tdOwner = document.createElement('td'); tdOwner.textContent = r.owner_org; tr.appendChild(tdOwner);
         const tdTN = document.createElement('td'); tdTN.textContent = r.tracking_number; tr.appendChild(tdTN);
         const tdReq = document.createElement('td'); tdReq.textContent = r.c_request_number || ''; tr.appendChild(tdReq);
-        const tdSum = document.createElement('td'); tdSum.textContent = r.informal_requests_sum.toLocaleString(); tr.appendChild(tdSum);
-
-        const tdPrev = document.createElement('td');
-        tdPrev.innerHTML = Object.entries(r.c_record_preview || {})
-          .filter(([k,v]) => v && String(v).trim().length)
-          .map(([k,v]) => `<div class="w-clip"><span class="muted">${k}:</span> ${String(v)}</div>`)
-          .join('') || '<span class="muted">—</span>';
-        tr.appendChild(tdPrev);
-
+        const tdSum = document.createElement('td'); tdSum.textContent = (r.informal_requests_sum || 0).toLocaleString(); tr.appendChild(tdSum);
+        const tdUID = document.createElement('td'); tdUID.textContent = r.unique_identifiers || ''; tr.appendChild(tdUID);
+        const tdEN = document.createElement('td'); tdEN.className = 'small'; tdEN.textContent = r.summary_en || ''; tr.appendChild(tdEN);
+        const tdFR = document.createElement('td'); tdFR.className = 'small'; tdFR.textContent = r.summary_fr || ''; tr.appendChild(tdFR);
         tbody.appendChild(tr);
       }
-
-      // Kick DataTables (WET does this automatically via data-wb-tables on mutation)
       window.wb && window.wb.shell && window.wb.shell.init($(document));
     })();
   </script>
