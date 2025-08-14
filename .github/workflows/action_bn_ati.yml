@@ -4,15 +4,14 @@ name: Build & Deploy BN_ATI Report
 on:
   workflow_dispatch:
   schedule:
-    - cron: "22 6 * * *"  # daily at 06:22 UTC
+    - cron: "22 6 * * *"   # daily at 06:22 UTC
   push:
     paths:
       - BN_ATI_REPORT/**
       - .github/workflows/action_bn_ati.yml
 
-# IMPORTANT: allow pushing commits + deploying Pages
 permissions:
-  contents: write
+  contents: write   # <-- needed to push commits
   pages: write
   id-token: write
 
@@ -31,7 +30,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # keep credentials so `git push` uses GITHUB_TOKEN
           persist-credentials: true
           fetch-depth: 0
 
@@ -52,17 +50,22 @@ jobs:
       - name: Ensure .nojekyll
         run: touch docs/.nojekyll
 
-      # OPTIONAL: commit generated files for history
+      # Commit AFTER building; then rebase if needed, then push
       - name: Commit generated files (optional)
         run: |
-          # rebase in case the branch moved
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          if [[ -n "$(git status --porcelain docs)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # stage only if there are changes under docs/
+          if ! git diff --quiet -- docs; then
             git add docs/report.json docs/index.html docs/.nojekyll
-            git commit -m "BN_ATI report update ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
-            git push
+            git commit -m "BN_ATI report update ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))" || true
+
+            # In case the branch moved while we were building, rebase then push
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          else
+            echo "No changes in docs/ to commit."
           fi
 
       - name: Configure Pages
@@ -71,7 +74,7 @@ jobs:
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # path from repo root (not affected by working-directory)
+          # Path is from repo root
           path: BN_ATI_REPORT/docs
 
   deploy:
