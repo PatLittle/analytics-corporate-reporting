@@ -4,14 +4,15 @@ name: Build & Deploy BN_ATI Report
 on:
   workflow_dispatch:
   schedule:
-    - cron: "22 6 * * *"     # daily at 06:22 UTC
+    - cron: "22 6 * * *"  # daily at 06:22 UTC
   push:
     paths:
       - BN_ATI_REPORT/**
       - .github/workflows/action_bn_ati.yml
 
+# IMPORTANT: allow pushing commits + deploying Pages
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -29,6 +30,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # keep credentials so `git push` uses GITHUB_TOKEN
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,9 +52,11 @@ jobs:
       - name: Ensure .nojekyll
         run: touch docs/.nojekyll
 
-      # Optional: also commit generated files to the repo for version history
+      # OPTIONAL: commit generated files for history
       - name: Commit generated files (optional)
         run: |
+          # rebase in case the branch moved
+          git pull --rebase origin "${GITHUB_REF_NAME}"
           if [[ -n "$(git status --porcelain docs)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -64,7 +71,7 @@ jobs:
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Path is from the repo root, not the working-directory.
+          # path from repo root (not affected by working-directory)
           path: BN_ATI_REPORT/docs
 
   deploy:
