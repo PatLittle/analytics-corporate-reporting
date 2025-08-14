@@ -8,9 +8,15 @@ A_URL = "https://open.canada.ca/data/en/datastore/dump/299a2e26-5103-4a49-ac3a-5
 B_URL = "https://open.canada.ca/data/en/datastore/dump/e664cf3d-6cb7-4aaa-adfa-e459c2552e3e?format=csv"
 C_URL = "https://open.canada.ca/data/en/datastore/dump/19383ca2-b01a-487d-88f7-e1ffbc7d39c2?format=csv"
 
-OUT_DIR = Path("BN_ATI_REPORT/docs"); OUT_DIR.mkdir(parents=True, exist_ok=True)
+# BEFORE (causes BN_ATI_REPORT/BN_ATI_REPORT/docs)
+# OUT_DIR = Path("BN_ATI_REPORT/docs")
+
+# AFTER (correct for working-directory: BN_ATI_REPORT)
+OUT_DIR = Path("docs")
 OUT_JSON = OUT_DIR / "report.json"
 OUT_HTML = OUT_DIR / "index.html"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def download_csv(url, retries=4, chunk=1024*1024):
     last_err = None
