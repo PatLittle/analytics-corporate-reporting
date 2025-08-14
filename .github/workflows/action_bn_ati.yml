@@ -1,9 +1,10 @@
+# .github/workflows/action_bn_ati.yml
 name: Build & Deploy BN_ATI Report
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "22 6 * * *"
+    - cron: "22 6 * * *"     # daily at 06:22 UTC
   push:
     paths:
       - BN_ATI_REPORT/**
@@ -13,6 +14,10 @@ permissions:
   contents: read
   pages: write
   id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -36,12 +41,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
-      - name: Build report
+      - name: Build report (writes to BN_ATI_REPORT/docs)
         run: python scripts/build_report.py
 
       - name: Ensure .nojekyll
+        run: touch docs/.nojekyll
+
+      # Optional: also commit generated files to the repo for version history
+      - name: Commit generated files (optional)
         run: |
-          touch docs/.nojekyll
+          if [[ -n "$(git status --porcelain docs)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add docs/report.json docs/index.html docs/.nojekyll
+            git commit -m "BN_ATI report update ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
+            git push
+          fi
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -49,7 +64,7 @@ jobs:
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # path is from the repository root; keep it explicit
+          # Path is from the repo root, not the working-directory.
           path: BN_ATI_REPORT/docs
 
   deploy:
@@ -57,17 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
-        id: deploy
+        id: deployment
         uses: actions/deploy-pages@v4
-      - name: Commit generated files (optional)
-        run: |
-          if [[ -n "$(git status --porcelain docs)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add docs/report.json docs/index.html
-            git commit -m "Update BN_ATI report ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
-            git push
-          fi
