@@ -1,9 +1,14 @@
-name: Build BN data report
+# .github/workflows/action_bn_ati.yml
+name: Build BN_ATI Report
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "22 6 * * *"  # daily 06:22 UTC
+    - cron: "22 6 * * *"
+  push:
+    paths:
+      - BN_ATI_REPORT/**
+      - .github/workflows/action_bn_ati.yml
 
 jobs:
   build:
@@ -11,27 +16,35 @@ jobs:
     defaults:
       run:
         working-directory: BN_ATI_REPORT
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+        # optional: cache pip
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
-      - name: Build report
-        env:
-          CKAN_BASE: https://open.canada.ca/data/en
+      - name: Build report (CSV → JSON/HTML)
         run: |
           python scripts/build_report.py
 
       - name: Commit artifacts
         run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
+          if [[ -n "$(git status --porcelain docs)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add docs/report.json docs/schemas/
-            git commit -m "Update report.json"
+            git add docs/report.json docs/index.html
+            git commit -m "BN_ATI report update ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
             git push
           fi
