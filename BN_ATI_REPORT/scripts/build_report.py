@@ -4,10 +4,10 @@ Build BN_ATI report:
 - Download 3 CSV datasets from the Government of Canada Open Data portal
 - B: aggregate "Number of Informal Requests" by (owner_org, Request Number) and collect "Unique Identifier"
 - C: merge the B aggregate on (owner_org, request_number)
-- A: for each owner_org, find rows in C whose summary_en/summary_fr contain any A.tracking_number
+- A: per owner_org, find rows in C whose summary_en/summary_fr contain any A.tracking_number
 - Emit:
   - docs/report.json (strict JSON, no NaN)
-  - docs/index.html   (GCWeb + DataTables table)
+  - docs/index.html   (from your template if provided, else GCWeb fallback)
 """
 
 from __future__ import annotations
@@ -34,6 +34,13 @@ C_URL = "https://open.canada.ca/data/en/datastore/dump/19383ca2-b01a-487d-88f7-e
 OUT_DIR = Path("docs")
 OUT_JSON = OUT_DIR / "report.json"
 OUT_HTML = OUT_DIR / "index.html"
+
+# Optional template locations (first one found wins)
+TEMPLATE_PATHS = [
+    Path("page_template.html"),
+    Path("templates/page_template.html"),
+    Path("docs/page_template.html"),
+]
 
 # Regex chunk size per owner_org to avoid extremely long patterns
 TN_REGEX_CHUNK = 400
@@ -81,6 +88,27 @@ def iter_chunks(items: List[str], size: int) -> Iterable[List[str]]:
         yield items[i : i + size]
 
 
+def load_template_html() -> str | None:
+    for p in TEMPLATE_PATHS:
+        if p.exists():
+            print(f"Using page template: {p}")
+            return p.read_text(encoding="utf-8")
+    return None
+
+
+def inject_script(html: str, script_tag: str) -> str:
+    """Insert script into html. If <!--REPORT_SCRIPT--> present, replace it; else insert before </body>."""
+    marker = "<!--REPORT_SCRIPT-->"
+    if marker in html:
+        return html.replace(marker, script_tag)
+    # insert before </body>, or append if not found
+    lower = html.lower()
+    idx = lower.rfind("</body>")
+    if idx != -1:
+        return html[:idx] + script_tag + html[idx:]
+    return html + script_tag
+
+
 # ---------------------------------------------------------------------
 # Main build logic
 # ---------------------------------------------------------------------
@@ -98,7 +126,6 @@ def main() -> None:
         raise ValueError(f"B is missing expected columns: {missingB}")
 
     metric_col = "Number of Informal Requests"
-    # numeric with NaN -> 0.0
     dfB[metric_col] = pd.to_numeric(dfB[metric_col], errors="coerce").fillna(0.0)
 
     dfB_agg = (
@@ -111,7 +138,6 @@ def main() -> None:
             }
         )
     )
-    # Lowercased join key for robustness
     dfB_agg["request_number_lc"] = dfB_agg["Request Number"].str.lower()
     print(f"B rows: {len(dfB):,}  (agg: {len(dfB_agg):,})")
 
@@ -193,7 +219,6 @@ def main() -> None:
 
         matched_blocks = []
         for chunk in iter_chunks(tn_list, TN_REGEX_CHUNK):
-            # escape special chars
             parts = [re.escape(t) for t in chunk]
             pattern = "(?:" + "|".join(parts) + ")"
             # contains (regex)
@@ -238,7 +263,7 @@ def main() -> None:
 
     print(f"Matches: {len(df_out):,}")
 
-    # ---------------- Serialize (strict JSON) + HTML ----------------
+    # ---------------- Serialize (strict JSON) ----------------
     # Ensure no NaN in string columns
     for col in [
         "owner_org",
@@ -279,16 +304,18 @@ def main() -> None:
         json.dump(payload, f, ensure_ascii=False, allow_nan=False, indent=2)
     print(f"Wrote {OUT_JSON}")
 
-    INDEX_HTML = """<!DOCTYPE html>
+    # ---------------- Build HTML from template or fallback ----------------
+    template_html = load_template_html()
+    if template_html is None:
+        # Fallback GCWeb page
+        template_html = """<!DOCTYPE html>
 <html lang="en" class="no-js">
 <head>
   <meta charset="utf-8" />
   <title>BN ATI Report</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- GCWeb (CDTS) + GC theme -->
   <link rel="stylesheet" href="https://www.canada.ca/etc/designs/canada/cdts/gcweb/v5_0_2/cdts/cdts-styles.css">
   <link rel="stylesheet" href="https://wet-boew.github.io/wet-boew/themes-dist/GCWeb/wet-boew/css/theme.min.css">
-  <!-- DataTables -->
   <link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css">
   <style>
     .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eee;font-size:.85em}
@@ -300,11 +327,6 @@ def main() -> None:
 <body vocab="http://schema.org/" typeof="WebPage">
   <main role="main" class="container">
     <h1 class="mrgn-tp-md">BN ATI Report</h1>
-    <p class="lead">
-      Sum of <span class="pill">Number of Informal Requests</span> from B by (<span class="mono">owner_org</span>, <span class="mono">request_number</span>),
-      merged into C, then filtered where an A <span class="pill">tracking_number</span> appears in <span class="pill">summary_en/summary_fr</span> for the same <span class="pill">owner_org</span>.
-    </p>
-
     <section id="stats" class="mrgn-bttm-lg well well-sm">
       <strong>Summary:</strong>
       <span id="count-a" class="pill">A: …</span>
@@ -313,9 +335,7 @@ def main() -> None:
       <span id="count-bc" class="pill">BC: …</span>
       <span id="count-m" class="pill">Matches: …</span>
     </section>
-
-    <table id="report" class="wb-tables table table-striped table-hover"
-           data-wb-tables='{"ordering": true, "searching": true, "pageLength": 25}'>
+    <table id="report" class="wb-tables table table-striped table-hover" data-wb-tables='{"ordering": true, "searching": true, "pageLength": 25}'>
       <thead>
         <tr>
           <th>owner_org</th>
@@ -330,46 +350,74 @@ def main() -> None:
       <tbody></tbody>
     </table>
   </main>
-
-  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js" defer></script>
-  <script src="https://wet-boew.github.io/wet-boew/wet-boew/js/wet-boew.min.js" defer></script>
-  <script src="https://cdn.datatables.net/2.0.8/js/dataTables.min.js" defer></script>
-  <script>
-    (async function () {
-      const res = await fetch('./report.json', {cache: 'no-store'});
-      const data = await res.json();
-
-      // Stats
-      document.getElementById('count-a').textContent  = `A: ${data.meta.counts.A_rows.toLocaleString()}`;
-      document.getElementById('count-b').textContent  = `B: ${data.meta.counts.B_rows.toLocaleString()}`;
-      document.getElementById('count-c').textContent  = `C: ${data.meta.counts.C_rows.toLocaleString()}`;
-      document.getElementById('count-bc').textContent = `BC: ${data.meta.counts.BC_rows.toLocaleString()}`;
-      document.getElementById('count-m').textContent  = `Matches: ${data.meta.counts.matches.toLocaleString()}`;
-
-      // Rows
-      const tbody = document.querySelector('#report tbody');
-      for (const r of data.rows) {
-        const tr = document.createElement('tr');
-
-        const tdOwner = document.createElement('td'); tdOwner.textContent = r.owner_org || ''; tr.appendChild(tdOwner);
-        const tdTN    = document.createElement('td'); tdTN.textContent    = r.tracking_number || ''; tr.appendChild(tdTN);
-        const tdReq   = document.createElement('td'); tdReq.textContent   = r.c_request_number || ''; tr.appendChild(tdReq);
-        const tdSum   = document.createElement('td'); tdSum.textContent   = (r.informal_requests_sum || 0).toLocaleString(); tr.appendChild(tdSum);
-        const tdUID   = document.createElement('td'); tdUID.textContent   = r.unique_identifiers || ''; tr.appendChild(tdUID);
-        const tdEN    = document.createElement('td'); tdEN.className='small'; tdEN.textContent = r.summary_en || ''; tr.appendChild(tdEN);
-        const tdFR    = document.createElement('td'); tdFR.className='small'; tdFR.textContent = r.summary_fr || ''; tr.appendChild(tdFR);
-
-        tbody.appendChild(tr);
-      }
-
-      // Init WET table
-      window.wb && window.wb.shell && window.wb.shell.init($(document));
-    })();
-  </script>
+  <!--REPORT_SCRIPT-->
 </body>
-</html>
+</html>"""
+
+    # The data-loading script (works with/without WET/DataTables present)
+    loader_js = r"""
+<script>
+(function(){
+  async function load() {
+    const res = await fetch('./report.json', {cache: 'no-store'});
+    const data = await res.json();
+
+    // Stats (if present)
+    function setText(id, txt){
+      var el = document.getElementById(id);
+      if (el) el.textContent = txt;
+    }
+    if (data.meta && data.meta.counts){
+      const c = data.meta.counts;
+      setText('count-a',  `A: ${(+c.A_rows||0).toLocaleString()}`);
+      setText('count-b',  `B: ${(+c.B_rows||0).toLocaleString()}`);
+      setText('count-c',  `C: ${(+c.C_rows||0).toLocaleString()}`);
+      setText('count-bc', `BC: ${(+c.BC_rows||0).toLocaleString()}`);
+      setText('count-m',  `Matches: ${(+c.matches||0).toLocaleString()}`);
+    }
+
+    // Ensure a table exists
+    var table = document.getElementById('report');
+    if (!table) {
+      table = document.createElement('table');
+      table.id = 'report';
+      table.className = 'wb-tables table table-striped table-hover';
+      table.setAttribute('data-wb-tables','{"ordering": true, "searching": true, "pageLength": 25}');
+      var thead = document.createElement('thead');
+      thead.innerHTML = '<tr>' +
+        '<th>owner_org</th><th>tracking_number</th><th>request_number</th>' +
+        '<th>Informal Requests (sum)</th><th>Unique Identifier(s)</th>' +
+        '<th>summary_en</th><th>summary_fr</th></tr>';
+      var tbody = document.createElement('tbody');
+      table.appendChild(thead); table.appendChild(tbody);
+      (document.querySelector('main') || document.body).appendChild(table);
+    }
+    var tbody = table.querySelector('tbody') || document.createElement('tbody');
+    if (!table.querySelector('tbody')) table.appendChild(tbody);
+
+    // Populate rows
+    (data.rows || []).forEach(function(r){
+      var tr = document.createElement('tr');
+      function td(v, cls){ var x=document.createElement('td'); if(cls) x.className=cls; x.textContent = v==null?'':String(v); return x; }
+      tr.appendChild(td(r.owner_org));
+      tr.appendChild(td(r.tracking_number));
+      tr.appendChild(td(r.c_request_number || ''));
+      tr.appendChild(td((r.informal_requests_sum||0).toLocaleString()));
+      tr.appendChild(td(r.unique_identifiers || ''));
+      tr.appendChild(td(r.summary_en || '', 'small'));
+      tr.appendChild(td(r.summary_fr || '', 'small'));
+      tbody.appendChild(tr);
+    });
+
+    // Initialize WET, if present
+    if (window.wb && window.wb.shell) { window.wb.shell.init($(document)); }
+  }
+  load().catch(console.error);
+})();
+</script>
 """
-    OUT_HTML.write_text(INDEX_HTML, encoding="utf-8")
+    final_html = inject_script(template_html, loader_js)
+    OUT_HTML.write_text(final_html, encoding="utf-8")
     print(f"Wrote {OUT_HTML}")
 
 
