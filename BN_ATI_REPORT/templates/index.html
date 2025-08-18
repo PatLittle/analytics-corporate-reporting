@@ -1,0 +1,122 @@
+<!-- BN_ATI_REPORT/templates/index.html -->
+<!-- TODO: Remove all comments before deploying your code to production. -->
+<!DOCTYPE html>
+<html dir="ltr" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- TODO: Add a description for SEO/sharing. -->
+    <meta name="description" content="BN ATI Report" />
+
+    <title>ATI Requests for Proactively Published Briefing Note Titles and Numbers</title>
+
+    <!---------- GC Design System Utility ---------->
+    <link
+      rel="stylesheet"
+      href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css"
+    />
+
+    <!---------- GC Design System Components ---------->
+    <link
+      rel="stylesheet"
+      href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css"
+    />
+    <script
+      type="module"
+      src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"
+    ></script>
+
+    <!-- DataTables CSS (core + SearchPanes + Select) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/searchpanes/2.2.0/css/searchPanes.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/select/1.7.0/css/select.dataTables.min.css">
+
+    <!-- Custom styles -->
+    <style>
+      td.small{max-width:56ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eef;font-size:.85em;margin-right:.25rem}
+      .table-wrap{margin-block: 1.5rem;}
+      table.dataTable {width:100% !important}
+      /* child-row styling */
+      table.dataTable tr.shown td { background: #f9fbff; }
+      .dt-details { padding: .75rem 1rem; line-height: 1.35; }
+      .dt-details h4 { margin:.2rem 0 .4rem; font-size:1rem; }
+      .dt-details p { margin:.25rem 0; }
+    </style>
+  </head>
+
+  <body>
+    <!---------- Header ---------->
+    <gcds-header lang-href="#" skip-to-href="#main-content">
+      <gcds-search slot="search"></gcds-search>
+      <gcds-breadcrumbs slot="breadcrumb">
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+      </gcds-breadcrumbs>
+    </gcds-header>
+
+    <!---------- Main content ---------->
+    <gcds-container
+      id="main-content"
+      main-container
+      size="full"
+      centered
+      tag="main"
+    >
+      <section>
+        <gcds-heading tag="h1">ATI Requests for Proactively Published Briefing Note Titles and Numbers</gcds-heading>
+        <gcds-text>
+          In accordance with the Access to Information Act, the government proactively publishes titles and reference numbers of memoranda received by ministers and deputy heads. These are often requested under the ATIA.
+        </gcds-text>
+      </section>
+
+      <!-- ▶︎ SECTION 1 (DataTables lives here) -->
+      <section id="section-1">
+        <gcds-heading tag="h2">Combined Data</gcds-heading>
+        <!-- Stats populated here -->
+        <gcds-text id="bn-ati-stats"></gcds-text>
+
+        <div class="table-wrap">
+          <gcds-heading tag="h3">Index of Records</gcds-heading>
+          <table id="report" class="display">
+            <thead>
+              <tr>
+                <th>owner_org</th>
+                <th>tracking_number</th>
+                <th>request_number</th>
+                <th>Informal Requests (sum)</th>
+                <th>Unique Identifier(s)</th>
+                <th>summary_en</th>
+                <th>summary_fr</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <gcds-heading tag="h2">Section 2</gcds-heading>
+        <gcds-text>Additional content.</gcds-text>
+      </section>
+
+      <section>
+        <gcds-heading tag="h2">Section 3</gcds-heading>
+        <gcds-text>Additional content.</gcds-text>
+      </section>
+
+      <gcds-date-modified>2024-08-22</gcds-date-modified>
+    </gcds-container>
+
+    <!---------- Footer ---------->
+    <gcds-footer
+      display="full"
+      contextual-heading="Open Government Portal Reports"
+      contextual-links='{ "GitHub": "https://github.com/open-data/analytics-corporate-reporting","Analytics Open Data": "https://open.canada.ca/data/en/dataset/2916fad5-ebcc-4c86-b0f3-4f619b29f412", "Open Government Analytics": "https://open.canada.ca/en/content/open-government-analytics"}'
+    >
+    </gcds-footer>
+
+    <!--REPORT_SCRIPT-->
+  </body>
+</html>
