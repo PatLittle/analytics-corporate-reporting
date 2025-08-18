@@ -186,7 +186,7 @@ def main() -> None:
     print(f"Wrote {OUT_JSON}")
 
     # --- SearchBuilder loader with presets
-    loader_js = r"""
+   loader_js = r"""
 <script>
 (function(){
   function addCSS(href){
@@ -203,13 +203,16 @@ def main() -> None:
       s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
     });
   }
-  async function ensureDataTables(){
+
+  async function ensureDataTables2(){
+    // jQuery (we use the jQuery API, though DT2 can be vanilla)
     if (!window.jQuery) await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
-    if (!jQuery.fn || !jQuery.fn.dataTable) {
-      await addCSS("https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css");
-      await addScript("https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js");
-    }
-    // SearchBuilder 1.8.3
+
+    // DataTables v2.0.8 (core)
+    await addCSS("https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css");
+    await addScript("https://cdn.datatables.net/2.0.8/js/dataTables.min.js");
+
+    // SearchBuilder 1.8.3 (needs DT2)
     await addCSS("https://cdn.datatables.net/searchbuilder/1.8.3/css/searchBuilder.dataTables.min.css");
     await addScript("https://cdn.datatables.net/searchbuilder/1.8.3/js/dataTables.searchBuilder.min.js");
   }
@@ -276,7 +279,7 @@ def main() -> None:
   };
 
   async function main(){
-    await ensureDataTables();
+    await ensureDataTables2();
 
     const res = await fetch('./report.json?ts=' + Date.now(), {cache: 'no-store'});
     const data = await res.json();
@@ -311,7 +314,7 @@ def main() -> None:
       pageLength: 25,
       lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
       order: [[0, "asc"]],
-      // SearchBuilder (Q), length (l), filter box (f), table (t), info (i), paging (p)
+      // Q = SearchBuilder (DT2 still supports 'dom' placement)
       dom: 'Qlfrtip',
       searchBuilder: {
         columns: [0,1,2,3,4,5,6]
@@ -331,7 +334,7 @@ def main() -> None:
           data: 4,
           render: function(d, type){ return type === 'display' ? linkUIDs(d) : (d ?? ''); }
         },
-        { data: 5, className: 'small' }, // summary_en (truncated via CSS)
+        { data: 5, className: 'small' }, // summary_en
         { data: 6, className: 'small' }  // summary_fr
       ]
     });
@@ -356,6 +359,7 @@ def main() -> None:
 })();
 </script>
 """
+
 
     final_html = inject_script_into_html(template_html, loader_js)
     OUT_HTML.write_text(final_html, encoding="utf-8")
