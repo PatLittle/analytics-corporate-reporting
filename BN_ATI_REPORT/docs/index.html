@@ -1,0 +1,292 @@
+<!-- BN_ATI_REPORT/templates/index.html -->
+<!-- TODO: Remove all comments before deploying your code to production. -->
+<!DOCTYPE html>
+<html dir="ltr" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- TODO: Add a description for SEO/sharing. -->
+    <meta name="description" content="BN ATI Report" />
+
+    <title>ATI Requests for Proactively Published Briefing Note Titles and Numbers</title>
+
+
+    <!-- GC Design System -->
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css" />
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css" />
+    <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
+
+    <!-- DataTables core + SearchBuilder (CSS only; JS injected by script) -->
+  
+    <style>
+      td.small{max-width:56ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eef;font-size:.85em;margin-right:.25rem}
+      .table-wrap{margin-block: 1.5rem;}
+      table.dataTable {width:100% !important}
+      table.dataTable tr.shown td { background: #f9fbff; }
+      .dt-details { padding: .75rem 1rem; line-height: 1.35; }
+      .dt-details h4 { margin:.2rem 0 .4rem; font-size:1rem; }
+      .dt-details p { margin:.25rem 0; }
+      .preset-bar { display:flex; gap:.5rem; flex-wrap:wrap; margin: .5rem 0 1rem; }
+    </style>
+  </head>
+
+  <body>
+    <!---------- Header ---------->
+    <gcds-header lang-href="#" skip-to-href="#main-content">
+      <gcds-search slot="search"></gcds-search>
+      <gcds-breadcrumbs slot="breadcrumb">
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+      </gcds-breadcrumbs>
+    </gcds-header>
+
+    <!---------- Main content ---------->
+    <gcds-container
+      id="main-content"
+      main-container
+      size="full"
+      centered
+      tag="main"
+    >
+      <section>
+        <gcds-heading tag="h1">ATI Requests for Proactively Published Briefing Note Titles and Numbers</gcds-heading>
+        <gcds-text>
+          In accordance with the Access to Information Act, the government proactively publishes titles and reference numbers of memoranda received by ministers and deputy heads. These are often requested under the ATIA.
+        </gcds-text>
+      </section>
+
+      <!-- ▶︎ SECTION 1 (DataTables lives here) -->
+      <section id="section-1">
+        <gcds-heading tag="h2">Combined Data</gcds-heading>
+        <!-- Stats populated here -->
+        <gcds-text id="bn-ati-stats"></gcds-text>
+
+         <div class="preset-bar">
+          <gcds-button id="preset-weak" type="button" button-role="secondary">
+            Apply: Remove Weak BN IDs
+          </gcds-button>
+          <gcds-button id="preset-informal" type="button" button-role="secondary">
+            Apply: Only Records Informally Requested
+          </gcds-button>
+          <gcds-button id="preset-clear" type="button">
+            Clear Filters
+          </gcds-button>
+        </div>
+
+        <div class="table-wrap">
+          <gcds-heading tag="h3">Index of Records</gcds-heading>
+          <table id="report" class="display">
+            <thead>
+              <tr>
+                <th>owner_org</th>
+                <th>tracking_number</th>
+                <th>request_number</th>
+                <th>Informal Requests (sum)</th>
+                <th>Unique Identifier(s)</th>
+                <th>summary_en</th>
+                <th>summary_fr</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <gcds-heading tag="h2">Section 2</gcds-heading>
+        <gcds-text>Additional content.</gcds-text>
+      </section>
+
+      <section>
+        <gcds-heading tag="h2">Section 3</gcds-heading>
+        <gcds-text>Additional content.</gcds-text>
+      </section>
+
+      <gcds-date-modified>2024-08-22</gcds-date-modified>
+    </gcds-container>
+
+    <!---------- Footer ---------->
+    <gcds-footer
+      display="full"
+      contextual-heading="Open Government Portal Reports"
+      contextual-links='{ "GitHub": "https://github.com/open-data/analytics-corporate-reporting","Analytics Open Data": "https://open.canada.ca/data/en/dataset/2916fad5-ebcc-4c86-b0f3-4f619b29f412", "Open Government Analytics": "https://open.canada.ca/en/content/open-government-analytics"}'
+    >
+    </gcds-footer>
+
+    
+<script>
+(function(){
+  function addCSS(href){
+    return new Promise(function(resolve,reject){
+      if ([...document.styleSheets].some(s => s.href && s.href.includes(href))) return resolve();
+      const l=document.createElement('link'); l.rel='stylesheet'; l.href=href;
+      l.onload=resolve; l.onerror=reject; document.head.appendChild(l);
+    });
+  }
+  function addScript(src){
+    return new Promise(function(resolve,reject){
+      if ([...document.scripts].some(s => s.src && s.src.includes(src))) return resolve();
+      const s=document.createElement('script'); s.src=src; s.defer=true;
+      s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
+    });
+  }
+
+  async function ensureDataTables2(){
+    // jQuery (we use the jQuery API, though DT2 can be vanilla)
+    if (!window.jQuery) await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
+
+    // DataTables v2.0.8 (core)
+    await addCSS("https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css");
+    await addScript("https://cdn.datatables.net/2.0.8/js/dataTables.min.js");
+
+    // SearchBuilder 1.8.3 (needs DT2)
+    await addCSS("https://cdn.datatables.net/searchbuilder/1.8.3/css/searchBuilder.dataTables.min.css");
+    await addScript("https://cdn.datatables.net/searchbuilder/1.8.3/js/dataTables.searchBuilder.min.js");
+  }
+
+  function escapeHtml(s){
+    return String(s ?? '').replace(/[&<>"']/g, m => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[m]));
+  }
+
+  function linkOwnerOrg(val){
+    const raw = String(val || '');
+    const slug = encodeURIComponent(raw.toLowerCase());
+    const url = `https://search.open.canada.ca/briefing_titles/?owner_org=${slug}`;
+    return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(raw)}</a>`;
+  }
+
+  function linkUIDs(val){
+    const raw = String(val || '');
+    if (!raw.trim()) return '';
+    const parts = raw.split(';').map(s => s.trim()).filter(Boolean);
+    const base = "https://open.canada.ca/en/search/ati/reference/";
+    return parts.map(id => `<a href="${base}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a>`).join("<br>");
+  }
+
+  function buildDetails(row){
+    // row = [owner_org, tracking_number, request_number, sum, unique_ids, summary_en, summary_fr]
+    return `
+      <div class="dt-details">
+        <h4>Full details</h4>
+        <p><strong>owner_org:</strong> ${escapeHtml(row[0])}</p>
+        <p><strong>tracking_number:</strong> ${escapeHtml(row[1])}</p>
+        <p><strong>request_number:</strong> ${escapeHtml(row[2])}</p>
+        <p><strong>Informal Requests (sum):</strong> ${Number(row[3] || 0).toLocaleString()}</p>
+        <p><strong>Unique Identifier(s):</strong><br>${linkUIDs(row[4])}</p>
+        <p><strong>summary_en:</strong><br>${escapeHtml(row[5])}</p>
+        <p><strong>summary_fr:</strong><br>${escapeHtml(row[6])}</p>
+      </div>`;
+  }
+
+  // Preset definitions for SearchBuilder
+  const PRESET_WEAK_IDS = {
+    criteria: [
+      { data: 'tracking_number', condition: '!=', value: ['c'] },
+      { data: 'tracking_number', condition: '!=', value: ['1'] },
+      { data: 'tracking_number', condition: '!=', value: ['0'] },
+      { data: 'tracking_number', condition: '!=', value: ['NA'] },
+      { data: 'tracking_number', condition: '!=', value: ['na'] },
+      { data: 'tracking_number', condition: '!=', value: ['-'] },
+      { data: 'tracking_number', condition: '!=', value: ['REDACTED'] },
+      { data: 'tracking_number', condition: '!=', value: ['[REDACTED]'] }
+    ],
+    logic: 'AND'
+  };
+  const PRESET_INFORMAL = {
+    criteria: [
+      { data: 'Informal Requests (sum)', condition: '>=', value: [1] }
+    ],
+    logic: 'AND'
+  };
+
+  async function main(){
+    await ensureDataTables2();
+
+    const res = await fetch('./report.json?ts=' + Date.now(), {cache: 'no-store'});
+    const data = await res.json();
+
+    const rows = (data.rows || []).map(r => ([
+      r.owner_org || '',
+      r.tracking_number || '',
+      r.c_request_number || '',
+      (r.informal_requests_sum || 0),
+      r.unique_identifiers || '',
+      r.summary_en || '',
+      r.summary_fr || ''
+    ]));
+
+    // Stats
+    const statsEl = document.getElementById('bn-ati-stats');
+    if (statsEl) {
+      statsEl.innerHTML =
+        `<strong>Summary</strong> — ` +
+        `A: ${Number(data.meta?.counts?.A_rows||0).toLocaleString()} · ` +
+        `B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} · ` +
+        `C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} · ` +
+        `BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} · ` +
+        `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}`;
+    }
+
+    const table = document.getElementById('report');
+    const dt = jQuery(table).DataTable({
+      data: rows,
+      deferRender: true,
+      autoWidth: false,
+      pageLength: 25,
+      lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
+      order: [[0, "asc"]],
+      // Q = SearchBuilder (DT2 still supports 'dom' placement)
+      dom: 'Qlfrtip',
+      searchBuilder: {
+        columns: [0,1,2,3,4,5,6]
+      },
+      columns: [
+        { // owner_org → hyperlink on display, raw for search/sort
+          data: 0,
+          render: function(d, type){ return type === 'display' ? linkOwnerOrg(d) : (d ?? ''); }
+        },
+        { data: 1 }, // tracking_number
+        { data: 2 }, // request_number
+        { // numeric sum
+          data: 3, className: 'dt-right',
+          render: function(d, type){ const n = Number(d||0); return type === 'display' ? n.toLocaleString() : n; }
+        },
+        { // Unique Identifier(s) → links on display
+          data: 4,
+          render: function(d, type){ return type === 'display' ? linkUIDs(d) : (d ?? ''); }
+        },
+        { data: 5, className: 'small' }, // summary_en
+        { data: 6, className: 'small' }  // summary_fr
+      ]
+    });
+
+    // Row expansion toggle for full text
+    jQuery('#report tbody').on('click', 'tr', function(){
+      const row = dt.row(this);
+      if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
+      else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
+    });
+
+    // Preset buttons
+    const btnWeak = document.getElementById('preset-weak');
+    const btnInformal = document.getElementById('preset-informal');
+    const btnClear = document.getElementById('preset-clear');
+    if (btnWeak) btnWeak.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_WEAK_IDS));
+    if (btnInformal) btnInformal.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_INFORMAL));
+    if (btnClear) btnClear.addEventListener('click', () => dt.searchBuilder.rebuild());
+  }
+
+  main().catch(console.error);
+})();
+</script>
+
+  </body>
+</html>
