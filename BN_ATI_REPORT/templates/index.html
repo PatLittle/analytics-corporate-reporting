@@ -11,38 +11,26 @@
 
     <title>ATI Requests for Proactively Published Briefing Note Titles and Numbers</title>
 
-    <!---------- GC Design System Utility ---------->
-    <link
-      rel="stylesheet"
-      href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css"
-    />
 
-    <!---------- GC Design System Components ---------->
-    <link
-      rel="stylesheet"
-      href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css"
-    />
-    <script
-      type="module"
-      src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"
-    ></script>
+    <!-- GC Design System -->
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css" />
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css" />
+    <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
 
-    <!-- DataTables CSS (core + SearchPanes + Select) -->
+    <!-- DataTables core + SearchBuilder (CSS only; JS injected by script) -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/searchpanes/2.2.0/css/searchPanes.dataTables.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/select/1.7.0/css/select.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/searchbuilder/1.6.1/css/searchBuilder.dataTables.min.css">
 
-    <!-- Custom styles -->
     <style>
       td.small{max-width:56ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eef;font-size:.85em;margin-right:.25rem}
       .table-wrap{margin-block: 1.5rem;}
       table.dataTable {width:100% !important}
-      /* child-row styling */
       table.dataTable tr.shown td { background: #f9fbff; }
       .dt-details { padding: .75rem 1rem; line-height: 1.35; }
       .dt-details h4 { margin:.2rem 0 .4rem; font-size:1rem; }
       .dt-details p { margin:.25rem 0; }
+      .preset-bar { display:flex; gap:.5rem; flex-wrap:wrap; margin: .5rem 0 1rem; }
     </style>
   </head>
 
@@ -76,6 +64,18 @@
         <gcds-heading tag="h2">Combined Data</gcds-heading>
         <!-- Stats populated here -->
         <gcds-text id="bn-ati-stats"></gcds-text>
+
+         <div class="preset-bar">
+          <gcds-button id="preset-weak" type="button" button-role="secondary">
+            Apply: Remove Weak BN IDs
+          </gcds-button>
+          <gcds-button id="preset-informal" type="button" button-role="secondary">
+            Apply: Only Records Informally Requested
+          </gcds-button>
+          <gcds-button id="preset-clear" type="button">
+            Clear Filters
+          </gcds-button>
+        </div>
 
         <div class="table-wrap">
           <gcds-heading tag="h3">Index of Records</gcds-heading>
