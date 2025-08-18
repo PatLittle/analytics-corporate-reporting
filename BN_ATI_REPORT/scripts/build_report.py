@@ -217,7 +217,7 @@ def main() -> None:
     # ---------------- Build HTML (GCDS template; DataTables in Section 1) ----------------
     template_html = load_template_html()
     if template_html is None:
-        # Default GCDS template with the DataTable placed inside Section 1.
+        # Default GCDS template with DataTables placed inside Section 1.
         template_html = """<!-- TODO: Remove all comments before deploying your code to production. -->
 <!DOCTYPE html>
 <html dir="ltr" lang="en">
@@ -225,33 +225,20 @@ def main() -> None:
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- TODO: Add a description of the page for better SEO and sharing previews. -->
-    <meta
-      name="description"
-      content="Add a description to provide a brief summary of the content."
-    />
-
-    <!-- TODO: Insert a concise, descriptive title that summarizes your page's content. -->
+    <meta name="description" content="Add a description to provide a brief summary of the content." />
     <title>Basic Page Template (EN)</title>
 
     <!---------- GC Design System Utility ---------->
-    <link
-      rel="stylesheet"
-      href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css"
-    />
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css" />
 
     <!---------- GC Design System Components ---------->
-    <link
-      rel="stylesheet"
-      href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css"
-    />
-    <script
-      type="module"
-      src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"
-    ></script>
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css" />
+    <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
 
-    <!-- DataTables CSS (JS loaded by loader if needed) -->
+    <!-- DataTables CSS (core + SearchPanes + Select) -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/searchpanes/2.2.0/css/searchPanes.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/select/1.7.0/css/select.dataTables.min.css">
 
     <!-- Custom styles -->
     <style>
@@ -259,6 +246,11 @@ def main() -> None:
       .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eef;font-size:.85em;margin-right:.25rem}
       .table-wrap{margin-block: 1.5rem;}
       table.dataTable {width:100% !important}
+      /* child-row styling */
+      table.dataTable tr.shown td { background: #f9fbff; }
+      .dt-details { padding: .75rem 1rem; line-height: 1.35; }
+      .dt-details h4 { margin:.2rem 0 .4rem; font-size:1rem; }
+      .dt-details p { margin:.25rem 0; }
     </style>
   </head>
 
@@ -273,25 +265,18 @@ def main() -> None:
     </gcds-header>
 
     <!---------- Main content ---------->
-    <gcds-container
-      id="main-content"
-      main-container
-      size="xl"
-      centered
-      tag="main"
-    >
+    <gcds-container id="main-content" main-container size="xl" centered tag="main">
       <section>
-        <gcds-heading tag="h1">Basic page</gcds-heading>
+        <gcds-heading tag="h1">ATI Requests for Proactively Published Briefing Note Titles and Numbers</gcds-heading>
         <gcds-text>
-          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
-          eiusmod tempor incididunt ut labore et dolore magna aliqua.
+          In accordance with the Access to Information Act, the government proactively publishes titles and reference numbers of memoranda received by ministers and deputy heads. These are often requested under the ATIA.
         </gcds-text>
       </section>
 
       <!-- ▶︎ SECTION 1 (DataTables lives here) -->
       <section id="section-1">
         <gcds-heading tag="h2">Section 1</gcds-heading>
-        <!-- Stats will be populated into this element -->
+        <!-- Stats populated here -->
         <gcds-text id="bn-ati-stats"></gcds-text>
 
         <div class="table-wrap">
@@ -315,50 +300,40 @@ def main() -> None:
 
       <section>
         <gcds-heading tag="h2">Section 2</gcds-heading>
-        <gcds-text>
-          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
-          eiusmod tempor incididunt ut labore et dolore magna aliqua.
-        </gcds-text>
+        <gcds-text>…</gcds-text>
       </section>
 
       <section>
         <gcds-heading tag="h2">Section 3</gcds-heading>
-        <gcds-text>
-          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
-          eiusmod tempor incididunt ut labore et dolore magna aliqua.
-        </gcds-text>
+        <gcds-text>…</gcds-text>
       </section>
 
-      <!-- TODO: Update the date to reflect the page's most recent change. -->
       <gcds-date-modified>2024-08-22</gcds-date-modified>
     </gcds-container>
 
     <!---------- Footer ---------->
-    <gcds-footer
-      display="full"
-      contextual-heading="Canadian Digital Service"
-      contextual-links='{ "Why GC Notify": "#","Features": "#", "Activity on GC Notify": "#"}'
-    >
+    <gcds-footer display="full" contextual-heading="Canadian Digital Service"
+      contextual-links='{ "Why GC Notify": "#","Features": "#", "Activity on GC Notify": "#"}'>
     </gcds-footer>
 
     <!--REPORT_SCRIPT-->
   </body>
 </html>"""
 
-    # Loader: fetch report.json, populate Section 1 table, ensure DataTables+jQuery present, then initialize.
+    # Loader: fetch report.json, populate Section 1 table, ensure DT + SearchPanes + Select; add row expansion & renderers.
     loader_js = r"""
 <script>
 (function(){
   function addCSS(href){
     return new Promise(function(resolve,reject){
-      if ([...document.styleSheets].some(s => s.href && s.href.includes('datatables'))) return resolve();
+      if ([...document.styleSheets].some(s => s.href && s.href.includes(href))) return resolve();
       var l=document.createElement('link'); l.rel='stylesheet'; l.href=href;
       l.onload=resolve; l.onerror=reject; document.head.appendChild(l);
     });
   }
   function addScript(src){
     return new Promise(function(resolve,reject){
-      if ([...document.scripts].some(s => s.src && s.src.includes(src.split('/').pop()))) return resolve();
+      if ([...document.scripts].some(s => s.src && s.src.includes(src))) return resolve();
       var s=document.createElement('script'); s.src=src; s.defer=true;
       s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
     });
@@ -369,6 +344,46 @@ def main() -> None:
       await addCSS("https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css");
       await addScript("https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js");
     }
+    // SearchPanes + Select extensions
+    await addCSS("https://cdn.datatables.net/searchpanes/2.2.0/css/searchPanes.dataTables.min.css");
+    await addCSS("https://cdn.datatables.net/select/1.7.0/css/select.dataTables.min.css");
+    await addScript("https://cdn.datatables.net/select/1.7.0/js/dataTables.select.min.js");
+    await addScript("https://cdn.datatables.net/searchpanes/2.2.0/js/dataTables.searchPanes.min.js");
+  }
+
+  function escapeHtml(s){
+    return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  function linkOwnerOrg(val){
+    const raw = String(val || '');
+    const slug = encodeURIComponent(raw.toLowerCase());
+    const url = `https://search.open.canada.ca/briefing_titles/?owner_org=${slug}`;
+    return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(raw)}</a>`;
+  }
+
+  function linkUIDs(val){
+    const raw = String(val || '');
+    if (!raw.trim()) return '';
+    const parts = raw.split(';').map(s => s.trim()).filter(s => s.length);
+    const base = "https://open.canada.ca/en/search/ati/reference/";
+    return parts.map(id => `<a href="${base}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a>`).join("<br>");
+  }
+
+  function buildDetails(row){
+    // row = [owner_org, tracking_number, request_number, sum, unique_ids, summary_en, summary_fr]
+    return `
+      <div class="dt-details">
+        <h4>Full details</h4>
+        <p><strong>owner_org:</strong> ${escapeHtml(row[0])}</p>
+        <p><strong>tracking_number:</strong> ${escapeHtml(row[1])}</p>
+        <p><strong>request_number:</strong> ${escapeHtml(row[2])}</p>
+        <p><strong>Informal Requests (sum):</strong> ${Number(row[3] || 0).toLocaleString()}</p>
+        <p><strong>Unique Identifier(s):</strong><br>${linkUIDs(row[4])}</p>
+        <p><strong>summary_en:</strong><br>${escapeHtml(row[5])}</p>
+        <p><strong>summary_fr:</strong><br>${escapeHtml(row[6])}</p>
+      </div>
+    `;
   }
 
   async function main(){
@@ -387,7 +402,7 @@ def main() -> None:
       r.summary_fr || ''
     ]));
 
-    // Populate stats inside Section 1
+    // Stats inside Section 1
     const statsEl = document.getElementById('bn-ati-stats');
     if (statsEl) {
       statsEl.innerHTML =
@@ -399,34 +414,72 @@ def main() -> None:
         `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}`;
     }
 
-    // Fill table body
     const table = document.getElementById('report');
-    const tbody = table.querySelector('tbody');
-    const frag = document.createDocumentFragment();
-    for (const row of rows) {
-      const tr = document.createElement('tr');
-      for (let i=0;i<row.length;i++){
-        const td = document.createElement('td');
-        if (i>=5) td.className = 'small'; // summaries
-        td.textContent = (row[i] == null) ? '' : String(row[i]);
-        tr.appendChild(td);
-      }
-      frag.appendChild(tr);
-    }
-    tbody.innerHTML = '';
-    tbody.appendChild(frag);
 
-    // Initialize DataTables (pagination/search/sort)
-    jQuery(table).DataTable({
+    // Initialize DataTables with SearchPanes for every column, custom renderers, and row expansion.
+    const dt = jQuery(table).DataTable({
+      data: rows,
+      deferRender: true,
+      autoWidth: false,
       pageLength: 25,
       lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
       order: [[0, "asc"]],
-      deferRender: true,
-      autoWidth: false,
-      columnDefs: [
-        { targets: [5,6], searchable: true },
-        { targets: [3], className: 'dt-right' }
+      dom: 'Plfrtip', // P = SearchPanes; l = length; f = filter; r = processing; t = table; i = info; p = paging
+      searchPanes: {
+        columns: [0,1,2,3,4,5,6],
+        layout: 'columns-4',
+        viewTotal: true,
+        cascadePanes: true
+      },
+      select: true,
+      columns: [
+        { // owner_org with link (display), plain for sort/filter
+          data: 0,
+          render: function(data, type, row) {
+            if (type === 'display') return linkOwnerOrg(data);
+            return data ?? '';
+          }
+        },
+        { data: 1 },                // tracking_number
+        { data: 2 },                // request_number
+        {                           // numeric sum, right aligned
+          data: 3,
+          className: 'dt-right',
+          render: function(d, type) {
+            const n = Number(d || 0);
+            return type === 'display' ? n.toLocaleString() : n;
+          }
+        },
+        { // Unique Identifier(s) -> linked list
+          data: 4,
+          render: function(data, type) {
+            if (type === 'display') return linkUIDs(data);
+            return data ?? '';
+          }
+        },
+        { // summary_en truncated by CSS but searchable fully
+          data: 5,
+          className: 'small',
+          render: function(d, type) { return d ?? ''; }
+        },
+        { // summary_fr truncated by CSS but searchable fully
+          data: 6,
+          className: 'small',
+          render: function(d, type) { return d ?? ''; }
+        }
       ]
+    });
+
+    // Row expansion on click: toggle child row with full values
+    jQuery('#report tbody').on('click', 'tr', function(){
+      const row = dt.row(this);
+      if (row.child.isShown()) {
+        row.child.hide();
+        jQuery(this).removeClass('shown');
+      } else {
+        row.child(buildDetails(row.data())).show();
+        jQuery(this).addClass('shown');
+      }
     });
   }
 
