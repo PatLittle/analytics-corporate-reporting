@@ -23,7 +23,8 @@ C_URL = "https://open.canada.ca/data/en/datastore/dump/19383ca2-b01a-487d-88f7-e
 # Outputs (workflow working-directory = BN_ATI_REPORT)
 # ---------------------------------------------------------------------
 OUT_DIR = Path("docs")
-OUT_JSON = OUT_DIR / "report.json"
+OUT_JSON = OUT_DIR / "report.json"          # strong-only rows
+OUT_WEAK = OUT_DIR / "weak_bn_id.json"      # weak-only rows
 OUT_HTML = OUT_DIR / "index.html"
 
 # REQUIRED template path (always present in repo)
@@ -31,6 +32,9 @@ TEMPLATE_FILE = Path("templates/index.html")
 
 # Chunk alternation size to keep regex manageable
 TN_REGEX_CHUNK = 400
+
+# Weak BN ID set (normalized)
+WEAK_BN_VALUES = {s.lower() for s in ["c", "1", "0", "NA", "na", "-", "REDACTED", "[REDACTED]", "TBD-PM-00"]}
 
 
 # ---------------------------------------------------------------------
@@ -223,31 +227,31 @@ def main() -> None:
             ]
         )
 
-    print(f"Matches: {len(df_out):,}")
+    print(f"Matches (pre-filter): {len(df_out):,}")
 
-    # 5) Serialize JSON (strict)
-    for col in [
-        "owner_org",
-        "tracking_number",
-        "request_number",
-        "unique_identifiers",
-        "summary_en",
-        "summary_fr",
-    ]:
-        if col in df_out.columns:
-            df_out[col] = df_out[col].fillna("")
+    # 5) Split into weak vs strong BN IDs, then serialize both
+    def is_weak(v: str) -> bool:
+        s = (str(v) or "").strip().lower()
+        return s in WEAK_BN_VALUES
 
-    payload = {
-        "meta": {
-            "counts": {
-                "A_rows": int(len(dfA)),
-                "B_rows": int(len(dfB)),
-                "C_rows": int(len(dfC)),
-                "BC_rows": int(len(dfBC)),
-                "matches": int(len(df_out)),
-            }
-        },
-        "rows": [
+    df_weak = df_out[df_out["tracking_number"].map(is_weak)].copy()
+    df_strong = df_out[~df_out["tracking_number"].map(is_weak)].copy()
+
+    print(f"Weak BN IDs: {len(df_weak):,}  |  Strong BN IDs: {len(df_strong):,}")
+
+    def to_payload(df_all: pd.DataFrame, all_counts: dict) -> dict:
+        # ensure strings
+        for col in [
+            "owner_org",
+            "tracking_number",
+            "request_number",
+            "unique_identifiers",
+            "summary_en",
+            "summary_fr",
+        ]:
+            if col in df_all.columns:
+                df_all[col] = df_all[col].fillna("")
+        rows = [
             {
                 "owner_org": r["owner_org"],
                 "tracking_number": r["tracking_number"],
@@ -257,16 +261,35 @@ def main() -> None:
                 "summary_en": r.get("summary_en", ""),
                 "summary_fr": r.get("summary_fr", ""),
             }
-            for _, r in df_out.iterrows()
-        ],
+            for _, r in df_all.iterrows()
+        ]
+        return {"meta": {"counts": all_counts}, "rows": rows}
+
+    counts_common = {
+        "A_rows": int(len(dfA)),
+        "B_rows": int(len(dfB)),
+        "C_rows": int(len(dfC)),
+        "BC_rows": int(len(dfBC)),
+        "matches": int(len(df_out)),
+        "weak_matches": int(len(df_weak)),
+        "strong_matches": int(len(df_strong)),
     }
 
+    OUT_WEAK.write_text(
+        json.dumps(to_payload(df_weak, counts_common), ensure_ascii=False, allow_nan=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"Wrote {OUT_WEAK}")
+
     OUT_JSON.write_text(
-        json.dumps(payload, ensure_ascii=False, allow_nan=False, indent=2), encoding="utf-8"
+        json.dumps(to_payload(df_strong, counts_common), ensure_ascii=False, allow_nan=False, indent=2),
+        encoding="utf-8",
     )
     print(f"Wrote {OUT_JSON}")
 
     # 6) Inject ONLY the loader script into the template, then write docs/index.html
+    #    - IndexedDB-first; only fetch if cache missing.
+    #    - No weak-ID preset (removed).
     loader_js = r"""
 <script>
 (function(){
@@ -380,15 +403,6 @@ def main() -> None:
       r.summary_fr || ''
     ]));
   }
-  function sameMeta(a,b){
-    try{
-      const ma = a?.meta?.counts, mb = b?.meta?.counts;
-      return !!ma && !!mb &&
-        ma.A_rows===mb.A_rows && ma.B_rows===mb.B_rows &&
-        ma.C_rows===mb.C_rows && ma.BC_rows===mb.BC_rows &&
-        ma.matches===mb.matches;
-    }catch{ return false; }
-  }
   function updateStats(data){
     const statsEl = document.getElementById('bn-ati-stats');
     if (!statsEl) return;
@@ -398,128 +412,69 @@ def main() -> None:
       `B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} · ` +
       `C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} · ` +
       `BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} · ` +
-      `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}`;
+      `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()} · ` +
+      `Strong: ${Number(data.meta?.counts?.strong_matches||0).toLocaleString()} · ` +
+      `Weak: ${Number(data.meta?.counts?.weak_matches||0).toLocaleString()}`;
   }
 
-  // ---------- SearchBuilder presets ----------
-  const PRESET_WEAK_IDS = {
-    criteria: [
-      { data: 'tracking_number', condition: '!=', value: ['c'] },
-      { data: 'tracking_number', condition: '!=', value: ['1'] },
-      { data: 'tracking_number', condition: '!=', value: ['0'] },
-      { data: 'tracking_number', condition: '!=', value: ['NA'] },
-      { data: 'tracking_number', condition: '!=', value: ['na'] },
-      { data: 'tracking_number', condition: '!=', value: ['-'] },
-      { data: 'tracking_number', condition: '!=', value: ['REDACTED'] },
-      { data: 'tracking_number', condition: '!=', value: ['[REDACTED]'] }
-    ],
-    logic: 'AND'
-  };
+  // Only Records Informally Requested preset
   const PRESET_INFORMAL = {
     criteria: [{ data: 'Informal Requests (sum)', condition: '>=', value: [1] }],
     logic: 'AND'
   };
 
-  // ---------- main ----------
   async function main(){
     await ensureDataTables2();
 
     const tableEl = document.getElementById('report');
 
-    // 1) Try IndexedDB first (instant paint)
-    const cached = await idbGet(KEY);
-    let dt = null;
-
-    if (cached){
-      updateStats(cached);
-      dt = jQuery(tableEl).DataTable({
-        data: toRows(cached),
-        deferRender: true,
-        autoWidth: false,
-        pageLength: 25,
-        lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
-        order: [[0, "asc"]],
-        dom: 'Qlfrtip',
-        searchBuilder: { columns: [0,1,2,3,4,5,6] },
-        columns: [
-          { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
-          { data: 1 },
-          { data: 2 },
-          { data: 3, className:'dt-right',
-            render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
-          { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
-          { data: 5, className:'small' },
-          { data: 6, className:'small' }
-        ]
-      });
-    }
-
-    // Hook up row expansion (works regardless of cached-first or network-first init)
-    function attachExpand(){
-      jQuery('#report tbody').off('click').on('click','tr', function(){
-        const row = dt.row(this);
-        if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
-        else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
-      });
-    }
-    if (dt) attachExpand();
-
-    // 2) Fetch fresh data; if different, live-update table + cache
-    try{
-      const res = await fetch('./report.json?ts=' + Date.now(), { cache: 'no-store' });
-      const fresh = await res.json();
-
-      // If table isn't initialized yet (no cache path), init now
-      if (!dt){
-        updateStats(fresh);
-        dt = jQuery(tableEl).DataTable({
-          data: toRows(fresh),
-          deferRender: true,
-          autoWidth: false,
-          pageLength: 25,
-          lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
-          order: [[0, "asc"]],
-          dom: 'Qlfrtip',
-          searchBuilder: { columns: [0,1,2,3,4,5,6] },
-          columns: [
-            { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
-            { data: 1 },
-            { data: 2 },
-            { data: 3, className:'dt-right',
-              render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
-            { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
-            { data: 5, className:'small' },
-            { data: 6, className:'small' }
-          ]
-        });
-        attachExpand();
-        await idbPut(KEY, fresh);
-      } else if (!sameMeta(cached, fresh)) {
-        // Preserve current SearchBuilder query if any
-        const sbDetails = (dt.searchBuilder && dt.searchBuilder.getDetails)
-          ? dt.searchBuilder.getDetails()
-          : null;
-
-        updateStats(fresh);
-        dt.clear().rows.add(toRows(fresh)).draw(false);
-
-        if (sbDetails && sbDetails.criteria && sbDetails.criteria.length){
-          try { dt.searchBuilder.rebuild(sbDetails); } catch(e){ console.warn('SB rebuild failed', e); }
-        }
-        await idbPut(KEY, fresh);
-      }
-    }catch(e){
-      console.warn("Network fetch failed; using cache if available.", e);
-      if (!dt && cached){
-        // Already painted from cache above
+    // 1) IndexedDB-first: if cached exists, use it; otherwise fetch from web once and cache it.
+    let data = await idbGet(KEY);
+    if (!data){
+      try{
+        const res = await fetch('./report.json', { cache: 'no-store' });
+        data = await res.json();
+        await idbPut(KEY, data);
+      }catch(e){
+        console.error("Failed to fetch report.json and no cache available.", e);
+        return;
       }
     }
 
-    // 3) Preset buttons (work after DT is live)
-    const btnWeak = document.getElementById('preset-weak');
+    // Initialize table from cached (or freshly fetched) data
+    updateStats(data);
+    const rows = toRows(data);
+    const dt = jQuery(tableEl).DataTable({
+      data: rows,
+      deferRender: true,
+      autoWidth: false,
+      pageLength: 25,
+      lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
+      order: [[0, "asc"]],
+      dom: 'Qlfrtip',
+      searchBuilder: { columns: [0,1,2,3,4,5,6] },
+      columns: [
+        { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
+        { data: 1 },
+        { data: 2 },
+        { data: 3, className:'dt-right',
+          render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
+        { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
+        { data: 5, className:'small' },
+        { data: 6, className:'small' }
+      ]
+    });
+
+    // Row expansion toggle
+    jQuery('#report tbody').on('click', 'tr', function(){
+      const row = dt.row(this);
+      if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
+      else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
+    });
+
+    // Preset buttons (no weak preset anymore)
     const btnInformal = document.getElementById('preset-informal');
     const btnClear = document.getElementById('preset-clear');
-    if (btnWeak) btnWeak.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_WEAK_IDS));
     if (btnInformal) btnInformal.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_INFORMAL));
     if (btnClear) btnClear.addEventListener('click', () => dt.searchBuilder.rebuild());
   }
@@ -528,7 +483,6 @@ def main() -> None:
 })();
 </script>
 """
-
 
     final_html = inject_script_into_html(template_html, loader_js)
     OUT_HTML.write_text(final_html, encoding="utf-8")
