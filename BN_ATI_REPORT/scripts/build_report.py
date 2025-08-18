@@ -214,28 +214,44 @@ def main() -> None:
     OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False, indent=2), encoding="utf-8")
     print(f"Wrote {OUT_JSON}")
 
-    # ---------------- Build HTML (GCDS template + DataTables) ----------------
+    # ---------------- Build HTML (GCDS template; DataTables in Section 1) ----------------
     template_html = load_template_html()
     if template_html is None:
-        # Your provided GCDS template as the default (kept verbatim), just with <!--REPORT_SCRIPT--> marker.
+        # Default GCDS template with the DataTable placed inside Section 1.
         template_html = """<!-- TODO: Remove all comments before deploying your code to production. -->
 <!DOCTYPE html>
 <html dir="ltr" lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Add a description to provide a brief summary of the content." />
+
+    <!-- TODO: Add a description of the page for better SEO and sharing previews. -->
+    <meta
+      name="description"
+      content="Add a description to provide a brief summary of the content."
+    />
+
+    <!-- TODO: Insert a concise, descriptive title that summarizes your page's content. -->
     <title>Basic Page Template (EN)</title>
 
     <!---------- GC Design System Utility ---------->
-    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css"
+    />
 
     <!---------- GC Design System Components ---------->
-    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css" />
-    <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css"
+    />
+    <script
+      type="module"
+      src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"
+    ></script>
 
-    <!-- DataTables (CSS only here; JS injected by loader if missing) -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
+    <!-- DataTables CSS (JS loaded by loader if needed) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
     <!-- Custom styles -->
     <style>
@@ -257,46 +273,79 @@ def main() -> None:
     </gcds-header>
 
     <!---------- Main content ---------->
-    <gcds-container id="main-content" main-container size="xl" centered tag="main">
+    <gcds-container
+      id="main-content"
+      main-container
+      size="xl"
+      centered
+      tag="main"
+    >
       <section>
         <gcds-heading tag="h1">Basic page</gcds-heading>
         <gcds-text>
-          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
+          eiusmod tempor incididunt ut labore et dolore magna aliqua.
         </gcds-text>
       </section>
 
-      <section class="table-wrap">
-        <gcds-heading tag="h2">BN ATI report</gcds-heading>
-        <!-- The table will be created and enhanced by DataTables -->
-        <table id="report" class="display">
-          <thead>
-            <tr>
-              <th>owner_org</th>
-              <th>tracking_number</th>
-              <th>request_number</th>
-              <th>Informal Requests (sum)</th>
-              <th>Unique Identifier(s)</th>
-              <th>summary_en</th>
-              <th>summary_fr</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+      <!-- ▶︎ SECTION 1 (DataTables lives here) -->
+      <section id="section-1">
+        <gcds-heading tag="h2">Section 1</gcds-heading>
+        <!-- Stats will be populated into this element -->
+        <gcds-text id="bn-ati-stats"></gcds-text>
+
+        <div class="table-wrap">
+          <gcds-heading tag="h3">BN ATI report</gcds-heading>
+          <table id="report" class="display">
+            <thead>
+              <tr>
+                <th>owner_org</th>
+                <th>tracking_number</th>
+                <th>request_number</th>
+                <th>Informal Requests (sum)</th>
+                <th>Unique Identifier(s)</th>
+                <th>summary_en</th>
+                <th>summary_fr</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
 
+      <section>
+        <gcds-heading tag="h2">Section 2</gcds-heading>
+        <gcds-text>
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
+          eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </gcds-text>
+      </section>
+
+      <section>
+        <gcds-heading tag="h2">Section 3</gcds-heading>
+        <gcds-text>
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
+          eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </gcds-text>
+      </section>
+
+      <!-- TODO: Update the date to reflect the page's most recent change. -->
       <gcds-date-modified>2024-08-22</gcds-date-modified>
     </gcds-container>
 
     <!---------- Footer ---------->
-    <gcds-footer display="full" contextual-heading="Canadian Digital Service"
-      contextual-links='{ "Why GC Notify": "#","Features": "#", "Activity on GC Notify": "#"}'>
+    <gcds-footer
+      display="full"
+      contextual-heading="Canadian Digital Service"
+      contextual-links='{ "Why GC Notify": "#","Features": "#", "Activity on GC Notify": "#"}'
+    >
     </gcds-footer>
 
     <!--REPORT_SCRIPT-->
   </body>
 </html>"""
 
-    # Loader: fetch report.json, populate table, ensure DataTables+jQuery are present, then initialize.
+    # Loader: fetch report.json, populate Section 1 table, ensure DataTables+jQuery present, then initialize.
     loader_js = r"""
 <script>
 (function(){
@@ -315,7 +364,6 @@ def main() -> None:
     });
   }
   async function ensureDataTables(){
-    // jQuery + DataTables (1.13.x)
     if (!window.jQuery) await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
     if (!jQuery.fn || !jQuery.fn.dataTable) {
       await addCSS("https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css");
@@ -339,9 +387,21 @@ def main() -> None:
       r.summary_fr || ''
     ]));
 
+    // Populate stats inside Section 1
+    const statsEl = document.getElementById('bn-ati-stats');
+    if (statsEl) {
+      statsEl.innerHTML =
+        `<strong>Summary</strong> — ` +
+        `A: ${Number(data.meta?.counts?.A_rows||0).toLocaleString()} · ` +
+        `B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} · ` +
+        `C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} · ` +
+        `BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} · ` +
+        `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}`;
+    }
+
+    // Fill table body
     const table = document.getElementById('report');
     const tbody = table.querySelector('tbody');
-    // Fill tbody fast via DocumentFragment
     const frag = document.createDocumentFragment();
     for (const row of rows) {
       const tr = document.createElement('tr');
@@ -356,42 +416,18 @@ def main() -> None:
     tbody.innerHTML = '';
     tbody.appendChild(frag);
 
-    // Initialize DataTables
-    const dt = jQuery(table).DataTable({
+    // Initialize DataTables (pagination/search/sort)
+    jQuery(table).DataTable({
       pageLength: 25,
       lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
       order: [[0, "asc"]],
       deferRender: true,
       autoWidth: false,
-      layout: {
-        topStart: 'search',
-        topEnd: 'pageLength',
-        bottomStart: 'info',
-        bottomEnd: 'paging'
-      },
       columnDefs: [
-        { targets: [5,6], searchable: true }, // summaries searchable
-        { targets: [3], className: 'dt-right' } // numeric align
+        { targets: [5,6], searchable: true },
+        { targets: [3], className: 'dt-right' }
       ]
     });
-
-    // Optional stats: show counts above table using GCDS text
-    const host = document.querySelector('#main-content') || document.body;
-    const statsId = 'bn-ati-stats';
-    if (!document.getElementById(statsId)) {
-      const s = document.createElement('section');
-      s.id = statsId;
-      s.innerHTML = `
-        <gcds-text>
-          <strong>Summary</strong> —
-          A: ${Number(data.meta?.counts?.A_rows||0).toLocaleString()} ·
-          B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} ·
-          C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} ·
-          BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} ·
-          Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}
-        </gcds-text>`;
-      host.insertBefore(s, host.querySelector('.table-wrap') || host.firstChild);
-    }
   }
 
   main().catch(console.error);
