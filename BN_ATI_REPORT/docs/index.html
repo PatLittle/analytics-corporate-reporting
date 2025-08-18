@@ -29,6 +29,19 @@
       .dt-details h4 { margin:.2rem 0 .4rem; font-size:1rem; }
       .dt-details p { margin:.25rem 0; }
       .preset-bar { display:flex; gap:.5rem; flex-wrap:wrap; margin: .5rem 0 1rem; }
+
+       /* Section 2: chart sizing and font bump */
+      .chart-wrap {
+        width: 71.25rem;       /* ~1140px */
+        margin: 0 auto;
+        font-size: 1.1rem;     /* larger base font near the chart */
+      }
+      #weakChart {
+        width: 100%;
+        height: 700px;         /* allow room for stacked bars */
+      }
+    
+    
     </style>
   </head>
 
@@ -92,37 +105,42 @@
         </div>
       </section>
 
-      <section id="section-2">
-  <gcds-heading tag="h2">Section 2</gcds-heading>
-  <gcds-text>
-    Weak BN ID distribution by owner_org (stacked). Table shows exact counts.
-  </gcds-text>
 
-  <div class="chart-wrap" style="max-width: 1000px; margin: 0 auto;">
-    <canvas id="weakChart" width="1000" height="500" aria-label="Weak BN ID counts per owner_org"></canvas>
-  </div>
+      <!-- Section 2: Stacked bar chart + details (table inside details) -->
+      <section id="section-2" style="text-align:center;">
+        <gcds-heading tag="h2">Section 2</gcds-heading>
+        <gcds-text>
+          Weak BN ID distribution by owner_org (stacked). Expand to view raw counts.
+        </gcds-text>
 
-  <div class="table-wrap" style="margin-top:1rem; overflow-x:auto;">
-    <table id="weakTable" class="display" style="min-width: 720px;">
-      <thead>
-        <tr>
-          <th>owner_org</th>
-          <th>c</th>
-          <th>1</th>
-          <th>0</th>
-          <th>NA</th>
-          <th>na</th>
-          <th>-</th>
-          <th>REDACTED</th>
-          <th>[REDACTED]</th>
-          <th>TBD-PM-00</th>
-          <th>Total</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
-</section>
+        <div class="chart-wrap">
+          <canvas id="weakChart" aria-label="Weak BN ID counts per owner_org"></canvas>
+        </div>
+
+        <!-- Expandable data table -->
+        <gcds-details details-title="Chart Data" open>
+          <div class="table-wrap">
+            <table id="weakTable" class="display compact" style="min-width: 720px;">
+              <thead>
+                <tr>
+                  <th>owner_org</th>
+                  <th>c</th>
+                  <th>1</th>
+                  <th>0</th>
+                  <th>NA</th>
+                  <th>na</th>
+                  <th>-</th>
+                  <th>REDACTED</th>
+                  <th>[REDACTED]</th>
+                  <th>TBD-PM-00</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </gcds-details>
+      </section>
 
 
       <section>
@@ -130,7 +148,8 @@
         <gcds-text>Additional content.</gcds-text>
       </section>
 
-      <gcds-date-modified>2024-08-22</gcds-date-modified>
+      <gcds-date-modified>{{ build_date }}</gcds-date-modified>
+
     </gcds-container>
 
     <!---------- Footer ---------->
