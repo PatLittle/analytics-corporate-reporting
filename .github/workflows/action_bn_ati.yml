@@ -58,7 +58,7 @@ jobs:
 
           # stage only if there are changes under docs/
           if ! git diff --quiet -- docs; then
-            git add docs/report.json docs/index.html docs/.nojekyll
+            git add docs/report.json docs/index.html docs/weak_bn_id.json docs/.nojekyll
             git commit -m "BN_ATI report update ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))" || true
 
             # In case the branch moved while we were building, rebase then push
