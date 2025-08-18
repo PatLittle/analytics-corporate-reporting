@@ -209,20 +209,28 @@ def main() -> None:
       await addCSS("https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css");
       await addScript("https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js");
     }
-    // SearchBuilder
-    await addCSS("https://cdn.datatables.net/searchbuilder/1.6.1/css/searchBuilder.dataTables.min.css");
-    await addScript("https://cdn.datatables.net/searchbuilder/1.6.1/js/dataTables.searchBuilder.min.js");
+    // SearchBuilder 1.8.3
+    await addCSS("https://cdn.datatables.net/searchbuilder/1.8.3/css/searchBuilder.dataTables.min.css");
+    await addScript("https://cdn.datatables.net/searchbuilder/1.8.3/js/dataTables.searchBuilder.min.js");
   }
 
   function escapeHtml(s){
-    return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',\"'\":'&#39;'}[m]));
+    return String(s ?? '').replace(/[&<>"']/g, m => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[m]));
   }
+
   function linkOwnerOrg(val){
     const raw = String(val || '');
     const slug = encodeURIComponent(raw.toLowerCase());
     const url = `https://search.open.canada.ca/briefing_titles/?owner_org=${slug}`;
     return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(raw)}</a>`;
   }
+
   function linkUIDs(val){
     const raw = String(val || '');
     if (!raw.trim()) return '';
@@ -230,7 +238,9 @@ def main() -> None:
     const base = "https://open.canada.ca/en/search/ati/reference/";
     return parts.map(id => `<a href="${base}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a>`).join("<br>");
   }
+
   function buildDetails(row){
+    // row = [owner_org, tracking_number, request_number, sum, unique_ids, summary_en, summary_fr]
     return `
       <div class="dt-details">
         <h4>Full details</h4>
@@ -244,7 +254,7 @@ def main() -> None:
       </div>`;
   }
 
-  // Preset definitions (SearchBuilder.Criteria)
+  // Preset definitions for SearchBuilder
   const PRESET_WEAK_IDS = {
     criteria: [
       { data: 'tracking_number', condition: '!=', value: ['c'] },
@@ -268,7 +278,7 @@ def main() -> None:
   async function main(){
     await ensureDataTables();
 
-    const res = await fetch('./report.json', {cache: 'no-store'});
+    const res = await fetch('./report.json?ts=' + Date.now(), {cache: 'no-store'});
     const data = await res.json();
 
     const rows = (data.rows || []).map(r => ([
@@ -301,13 +311,13 @@ def main() -> None:
       pageLength: 25,
       lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
       order: [[0, "asc"]],
-      // SearchBuilder placement
+      // SearchBuilder (Q), length (l), filter box (f), table (t), info (i), paging (p)
       dom: 'Qlfrtip',
       searchBuilder: {
         columns: [0,1,2,3,4,5,6]
       },
       columns: [
-        { // owner_org → hyperlink (display), raw for search/sort
+        { // owner_org → hyperlink on display, raw for search/sort
           data: 0,
           render: function(d, type){ return type === 'display' ? linkOwnerOrg(d) : (d ?? ''); }
         },
@@ -321,12 +331,12 @@ def main() -> None:
           data: 4,
           render: function(d, type){ return type === 'display' ? linkUIDs(d) : (d ?? ''); }
         },
-        { data: 5, className: 'small' }, // summary_en
+        { data: 5, className: 'small' }, // summary_en (truncated via CSS)
         { data: 6, className: 'small' }  // summary_fr
       ]
     });
 
-    // Row expansion toggle
+    // Row expansion toggle for full text
     jQuery('#report tbody').on('click', 'tr', function(){
       const row = dt.row(this);
       if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
@@ -337,7 +347,6 @@ def main() -> None:
     const btnWeak = document.getElementById('preset-weak');
     const btnInformal = document.getElementById('preset-informal');
     const btnClear = document.getElementById('preset-clear');
-
     if (btnWeak) btnWeak.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_WEAK_IDS));
     if (btnInformal) btnInformal.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_INFORMAL));
     if (btnClear) btnClear.addEventListener('click', () => dt.searchBuilder.rebuild());
@@ -347,6 +356,7 @@ def main() -> None:
 })();
 </script>
 """
+
     final_html = inject_script_into_html(template_html, loader_js)
     OUT_HTML.write_text(final_html, encoding="utf-8")
     print(f"Wrote {OUT_HTML}")
