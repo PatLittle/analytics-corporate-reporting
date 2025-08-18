@@ -228,15 +228,6 @@
       r.summary_fr || ''
     ]));
   }
-  function sameMeta(a,b){
-    try{
-      const ma = a?.meta?.counts, mb = b?.meta?.counts;
-      return !!ma && !!mb &&
-        ma.A_rows===mb.A_rows && ma.B_rows===mb.B_rows &&
-        ma.C_rows===mb.C_rows && ma.BC_rows===mb.BC_rows &&
-        ma.matches===mb.matches;
-    }catch{ return false; }
-  }
   function updateStats(data){
     const statsEl = document.getElementById('bn-ati-stats');
     if (!statsEl) return;
@@ -246,128 +237,69 @@
       `B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} · ` +
       `C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} · ` +
       `BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} · ` +
-      `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}`;
+      `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()} · ` +
+      `Strong: ${Number(data.meta?.counts?.strong_matches||0).toLocaleString()} · ` +
+      `Weak: ${Number(data.meta?.counts?.weak_matches||0).toLocaleString()}`;
   }
 
-  // ---------- SearchBuilder presets ----------
-  const PRESET_WEAK_IDS = {
-    criteria: [
-      { data: 'tracking_number', condition: '!=', value: ['c'] },
-      { data: 'tracking_number', condition: '!=', value: ['1'] },
-      { data: 'tracking_number', condition: '!=', value: ['0'] },
-      { data: 'tracking_number', condition: '!=', value: ['NA'] },
-      { data: 'tracking_number', condition: '!=', value: ['na'] },
-      { data: 'tracking_number', condition: '!=', value: ['-'] },
-      { data: 'tracking_number', condition: '!=', value: ['REDACTED'] },
-      { data: 'tracking_number', condition: '!=', value: ['[REDACTED]'] }
-    ],
-    logic: 'AND'
-  };
+  // Only Records Informally Requested preset
   const PRESET_INFORMAL = {
     criteria: [{ data: 'Informal Requests (sum)', condition: '>=', value: [1] }],
     logic: 'AND'
   };
 
-  // ---------- main ----------
   async function main(){
     await ensureDataTables2();
 
     const tableEl = document.getElementById('report');
 
-    // 1) Try IndexedDB first (instant paint)
-    const cached = await idbGet(KEY);
-    let dt = null;
-
-    if (cached){
-      updateStats(cached);
-      dt = jQuery(tableEl).DataTable({
-        data: toRows(cached),
-        deferRender: true,
-        autoWidth: false,
-        pageLength: 25,
-        lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
-        order: [[0, "asc"]],
-        dom: 'Qlfrtip',
-        searchBuilder: { columns: [0,1,2,3,4,5,6] },
-        columns: [
-          { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
-          { data: 1 },
-          { data: 2 },
-          { data: 3, className:'dt-right',
-            render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
-          { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
-          { data: 5, className:'small' },
-          { data: 6, className:'small' }
-        ]
-      });
-    }
-
-    // Hook up row expansion (works regardless of cached-first or network-first init)
-    function attachExpand(){
-      jQuery('#report tbody').off('click').on('click','tr', function(){
-        const row = dt.row(this);
-        if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
-        else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
-      });
-    }
-    if (dt) attachExpand();
-
-    // 2) Fetch fresh data; if different, live-update table + cache
-    try{
-      const res = await fetch('./report.json?ts=' + Date.now(), { cache: 'no-store' });
-      const fresh = await res.json();
-
-      // If table isn't initialized yet (no cache path), init now
-      if (!dt){
-        updateStats(fresh);
-        dt = jQuery(tableEl).DataTable({
-          data: toRows(fresh),
-          deferRender: true,
-          autoWidth: false,
-          pageLength: 25,
-          lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
-          order: [[0, "asc"]],
-          dom: 'Qlfrtip',
-          searchBuilder: { columns: [0,1,2,3,4,5,6] },
-          columns: [
-            { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
-            { data: 1 },
-            { data: 2 },
-            { data: 3, className:'dt-right',
-              render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
-            { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
-            { data: 5, className:'small' },
-            { data: 6, className:'small' }
-          ]
-        });
-        attachExpand();
-        await idbPut(KEY, fresh);
-      } else if (!sameMeta(cached, fresh)) {
-        // Preserve current SearchBuilder query if any
-        const sbDetails = (dt.searchBuilder && dt.searchBuilder.getDetails)
-          ? dt.searchBuilder.getDetails()
-          : null;
-
-        updateStats(fresh);
-        dt.clear().rows.add(toRows(fresh)).draw(false);
-
-        if (sbDetails && sbDetails.criteria && sbDetails.criteria.length){
-          try { dt.searchBuilder.rebuild(sbDetails); } catch(e){ console.warn('SB rebuild failed', e); }
-        }
-        await idbPut(KEY, fresh);
-      }
-    }catch(e){
-      console.warn("Network fetch failed; using cache if available.", e);
-      if (!dt && cached){
-        // Already painted from cache above
+    // 1) IndexedDB-first: if cached exists, use it; otherwise fetch from web once and cache it.
+    let data = await idbGet(KEY);
+    if (!data){
+      try{
+        const res = await fetch('./report.json', { cache: 'no-store' });
+        data = await res.json();
+        await idbPut(KEY, data);
+      }catch(e){
+        console.error("Failed to fetch report.json and no cache available.", e);
+        return;
       }
     }
 
-    // 3) Preset buttons (work after DT is live)
-    const btnWeak = document.getElementById('preset-weak');
+    // Initialize table from cached (or freshly fetched) data
+    updateStats(data);
+    const rows = toRows(data);
+    const dt = jQuery(tableEl).DataTable({
+      data: rows,
+      deferRender: true,
+      autoWidth: false,
+      pageLength: 25,
+      lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
+      order: [[0, "asc"]],
+      dom: 'Qlfrtip',
+      searchBuilder: { columns: [0,1,2,3,4,5,6] },
+      columns: [
+        { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
+        { data: 1 },
+        { data: 2 },
+        { data: 3, className:'dt-right',
+          render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
+        { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
+        { data: 5, className:'small' },
+        { data: 6, className:'small' }
+      ]
+    });
+
+    // Row expansion toggle
+    jQuery('#report tbody').on('click', 'tr', function(){
+      const row = dt.row(this);
+      if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
+      else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
+    });
+
+    // Preset buttons (no weak preset anymore)
     const btnInformal = document.getElementById('preset-informal');
     const btnClear = document.getElementById('preset-clear');
-    if (btnWeak) btnWeak.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_WEAK_IDS));
     if (btnInformal) btnInformal.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_INFORMAL));
     if (btnClear) btnClear.addEventListener('click', () => dt.searchBuilder.rebuild());
   }
