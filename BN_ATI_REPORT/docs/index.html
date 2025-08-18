@@ -129,61 +129,101 @@
   
 <script>
 (function(){
-  async function load() {
+  function addCSS(href){
+    return new Promise(function(resolve,reject){
+      if ([...document.styleSheets].some(s => s.href && s.href.includes('datatables'))) return resolve();
+      var l=document.createElement('link'); l.rel='stylesheet'; l.href=href;
+      l.onload=resolve; l.onerror=reject; document.head.appendChild(l);
+    });
+  }
+  function addScript(src){
+    return new Promise(function(resolve,reject){
+      if ([...document.scripts].some(s => s.src && s.src.includes(src.split('/').pop()))) return resolve();
+      var s=document.createElement('script'); s.src=src; s.defer=true;
+      s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
+    });
+  }
+  async function ensureDataTables(){
+    // jQuery + DataTables (1.13.x)
+    if (!window.jQuery) await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
+    if (!jQuery.fn || !jQuery.fn.dataTable) {
+      await addCSS("https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css");
+      await addScript("https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js");
+    }
+  }
+
+  async function main(){
+    await ensureDataTables();
+
     const res = await fetch('./report.json', {cache: 'no-store'});
     const data = await res.json();
 
-    // Stats (if present)
-    function setText(id, txt){
-      var el = document.getElementById(id);
-      if (el) el.textContent = txt;
-    }
-    if (data.meta && data.meta.counts){
-      const c = data.meta.counts;
-      setText('count-a',  `A: ${(+c.A_rows||0).toLocaleString()}`);
-      setText('count-b',  `B: ${(+c.B_rows||0).toLocaleString()}`);
-      setText('count-c',  `C: ${(+c.C_rows||0).toLocaleString()}`);
-      setText('count-bc', `BC: ${(+c.BC_rows||0).toLocaleString()}`);
-      setText('count-m',  `Matches: ${(+c.matches||0).toLocaleString()}`);
-    }
+    const rows = (data.rows || []).map(r => ([
+      r.owner_org || '',
+      r.tracking_number || '',
+      r.c_request_number || '',
+      (r.informal_requests_sum || 0),
+      r.unique_identifiers || '',
+      r.summary_en || '',
+      r.summary_fr || ''
+    ]));
 
-    // Ensure a table exists
-    var table = document.getElementById('report');
-    if (!table) {
-      table = document.createElement('table');
-      table.id = 'report';
-      table.className = 'wb-tables table table-striped table-hover';
-      table.setAttribute('data-wb-tables','{"ordering": true, "searching": true, "pageLength": 25}');
-      var thead = document.createElement('thead');
-      thead.innerHTML = '<tr>' +
-        '<th>owner_org</th><th>tracking_number</th><th>request_number</th>' +
-        '<th>Informal Requests (sum)</th><th>Unique Identifier(s)</th>' +
-        '<th>summary_en</th><th>summary_fr</th></tr>';
-      var tbody = document.createElement('tbody');
-      table.appendChild(thead); table.appendChild(tbody);
-      (document.querySelector('main') || document.body).appendChild(table);
+    const table = document.getElementById('report');
+    const tbody = table.querySelector('tbody');
+    // Fill tbody fast via DocumentFragment
+    const frag = document.createDocumentFragment();
+    for (const row of rows) {
+      const tr = document.createElement('tr');
+      for (let i=0;i<row.length;i++){
+        const td = document.createElement('td');
+        if (i>=5) td.className = 'small'; // summaries
+        td.textContent = (row[i] == null) ? '' : String(row[i]);
+        tr.appendChild(td);
+      }
+      frag.appendChild(tr);
     }
-    var tbody = table.querySelector('tbody') || document.createElement('tbody');
-    if (!table.querySelector('tbody')) table.appendChild(tbody);
+    tbody.innerHTML = '';
+    tbody.appendChild(frag);
 
-    // Populate rows
-    (data.rows || []).forEach(function(r){
-      var tr = document.createElement('tr');
-      function td(v, cls){ var x=document.createElement('td'); if(cls) x.className=cls; x.textContent = v==null?'':String(v); return x; }
-      tr.appendChild(td(r.owner_org));
-      tr.appendChild(td(r.tracking_number));
-      tr.appendChild(td(r.c_request_number || ''));
-      tr.appendChild(td((r.informal_requests_sum||0).toLocaleString()));
-      tr.appendChild(td(r.unique_identifiers || ''));
-      tr.appendChild(td(r.summary_en || '', 'small'));
-      tr.appendChild(td(r.summary_fr || '', 'small'));
-      tbody.appendChild(tr);
+    // Initialize DataTables
+    const dt = jQuery(table).DataTable({
+      pageLength: 25,
+      lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
+      order: [[0, "asc"]],
+      deferRender: true,
+      autoWidth: false,
+      layout: {
+        topStart: 'search',
+        topEnd: 'pageLength',
+        bottomStart: 'info',
+        bottomEnd: 'paging'
+      },
+      columnDefs: [
+        { targets: [5,6], searchable: true }, // summaries searchable
+        { targets: [3], className: 'dt-right' } // numeric align
+      ]
     });
 
-    // Initialize WET, if present
-    if (window.wb && window.wb.shell) { window.wb.shell.init($(document)); }
+    // Optional stats: show counts above table using GCDS text
+    const host = document.querySelector('#main-content') || document.body;
+    const statsId = 'bn-ati-stats';
+    if (!document.getElementById(statsId)) {
+      const s = document.createElement('section');
+      s.id = statsId;
+      s.innerHTML = `
+        <gcds-text>
+          <strong>Summary</strong> —
+          A: ${Number(data.meta?.counts?.A_rows||0).toLocaleString()} ·
+          B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} ·
+          C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} ·
+          BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} ·
+          Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}
+        </gcds-text>`;
+      host.insertBefore(s, host.querySelector('.table-wrap') || host.firstChild);
+    }
   }
-  load().catch(console.error);
+
+  main().catch(console.error);
 })();
 </script>
 </body>
