@@ -270,6 +270,7 @@ def main() -> None:
     loader_js = r"""
 <script>
 (function(){
+  // ---------- tiny helpers for dynamic assets ----------
   function addCSS(href){
     return new Promise(function(resolve,reject){
       if ([...document.styleSheets].some(s => s.href && s.href.includes(href))) return resolve();
@@ -285,36 +286,68 @@ def main() -> None:
     });
   }
 
+  // ---------- ensure DataTables v2 + SearchBuilder 1.8.3 ----------
   async function ensureDataTables2(){
-    // jQuery (we use the jQuery API, though DT2 can be vanilla)
     if (!window.jQuery) await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
-
-    // DataTables v2.0.8 (core)
     await addCSS("https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css");
     await addScript("https://cdn.datatables.net/2.0.8/js/dataTables.min.js");
-
-    // SearchBuilder 1.8.3 (needs DT2)
     await addCSS("https://cdn.datatables.net/searchbuilder/1.8.3/css/searchBuilder.dataTables.min.css");
     await addScript("https://cdn.datatables.net/searchbuilder/1.8.3/js/dataTables.searchBuilder.min.js");
   }
 
-  function escapeHtml(s){
-    return String(s ?? '').replace(/[&<>"']/g, m => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    }[m]));
+  // ---------- IndexedDB (simple wrapper) ----------
+  const DB_NAME = "bn_ati_cache";
+  const STORE = "reports";
+  const KEY = "report_v1"; // bump if JSON schema changes
+
+  function idbOpen(){
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbGet(key){
+    try{
+      const db = await idbOpen();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, "readonly");
+        const store = tx.objectStore(STORE);
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    }catch(e){ console.warn("idbGet failed", e); return null; }
+  }
+  async function idbPut(key, value){
+    try{
+      const db = await idbOpen();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, "readwrite");
+        const store = tx.objectStore(STORE);
+        const req = store.put(value, key);
+        req.onsuccess = () => resolve(true);
+        req.onerror = () => reject(req.error);
+      });
+    }catch(e){ console.warn("idbPut failed", e); return false; }
   }
 
+  // ---------- utilities ----------
+  function escapeHtml(s){
+    return String(s ?? '').replace(/[&<>"']/g, m => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[m]));
+  }
   function linkOwnerOrg(val){
     const raw = String(val || '');
     const slug = encodeURIComponent(raw.toLowerCase());
     const url = `https://search.open.canada.ca/briefing_titles/?owner_org=${slug}`;
     return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(raw)}</a>`;
   }
-
   function linkUIDs(val){
     const raw = String(val || '');
     if (!raw.trim()) return '';
@@ -322,7 +355,6 @@ def main() -> None:
     const base = "https://open.canada.ca/en/search/ati/reference/";
     return parts.map(id => `<a href="${base}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a>`).join("<br>");
   }
-
   function buildDetails(row){
     // row = [owner_org, tracking_number, request_number, sum, unique_ids, summary_en, summary_fr]
     return `
@@ -337,8 +369,39 @@ def main() -> None:
         <p><strong>summary_fr:</strong><br>${escapeHtml(row[6])}</p>
       </div>`;
   }
+  function toRows(json){
+    return (json?.rows || []).map(r => ([
+      r.owner_org || '',
+      r.tracking_number || '',
+      r.c_request_number || '',
+      (r.informal_requests_sum || 0),
+      r.unique_identifiers || '',
+      r.summary_en || '',
+      r.summary_fr || ''
+    ]));
+  }
+  function sameMeta(a,b){
+    try{
+      const ma = a?.meta?.counts, mb = b?.meta?.counts;
+      return !!ma && !!mb &&
+        ma.A_rows===mb.A_rows && ma.B_rows===mb.B_rows &&
+        ma.C_rows===mb.C_rows && ma.BC_rows===mb.BC_rows &&
+        ma.matches===mb.matches;
+    }catch{ return false; }
+  }
+  function updateStats(data){
+    const statsEl = document.getElementById('bn-ati-stats');
+    if (!statsEl) return;
+    statsEl.innerHTML =
+      `<strong>Summary</strong> — ` +
+      `A: ${Number(data.meta?.counts?.A_rows||0).toLocaleString()} · ` +
+      `B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} · ` +
+      `C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} · ` +
+      `BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} · ` +
+      `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}`;
+  }
 
-  // Preset definitions for SearchBuilder
+  // ---------- SearchBuilder presets ----------
   const PRESET_WEAK_IDS = {
     criteria: [
       { data: 'tracking_number', condition: '!=', value: ['c'] },
@@ -353,81 +416,106 @@ def main() -> None:
     logic: 'AND'
   };
   const PRESET_INFORMAL = {
-    criteria: [
-      { data: 'Informal Requests (sum)', condition: '>=', value: [1] }
-    ],
+    criteria: [{ data: 'Informal Requests (sum)', condition: '>=', value: [1] }],
     logic: 'AND'
   };
 
+  // ---------- main ----------
   async function main(){
     await ensureDataTables2();
 
-    const res = await fetch('./report.json?ts=' + Date.now(), {cache: 'no-store'});
-    const data = await res.json();
+    const tableEl = document.getElementById('report');
 
-    const rows = (data.rows || []).map(r => ([
-      r.owner_org || '',
-      r.tracking_number || '',
-      r.c_request_number || '',
-      (r.informal_requests_sum || 0),
-      r.unique_identifiers || '',
-      r.summary_en || '',
-      r.summary_fr || ''
-    ]));
+    // 1) Try IndexedDB first (instant paint)
+    const cached = await idbGet(KEY);
+    let dt = null;
 
-    // Stats
-    const statsEl = document.getElementById('bn-ati-stats');
-    if (statsEl) {
-      statsEl.innerHTML =
-        `<strong>Summary</strong> — ` +
-        `A: ${Number(data.meta?.counts?.A_rows||0).toLocaleString()} · ` +
-        `B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} · ` +
-        `C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} · ` +
-        `BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} · ` +
-        `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}`;
+    if (cached){
+      updateStats(cached);
+      dt = jQuery(tableEl).DataTable({
+        data: toRows(cached),
+        deferRender: true,
+        autoWidth: false,
+        pageLength: 25,
+        lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
+        order: [[0, "asc"]],
+        dom: 'Qlfrtip',
+        searchBuilder: { columns: [0,1,2,3,4,5,6] },
+        columns: [
+          { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
+          { data: 1 },
+          { data: 2 },
+          { data: 3, className:'dt-right',
+            render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
+          { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
+          { data: 5, className:'small' },
+          { data: 6, className:'small' }
+        ]
+      });
     }
 
-    const table = document.getElementById('report');
-    const dt = jQuery(table).DataTable({
-      data: rows,
-      deferRender: true,
-      autoWidth: false,
-      pageLength: 25,
-      lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
-      order: [[0, "asc"]],
-      // Q = SearchBuilder (DT2 still supports 'dom' placement)
-      dom: 'Qlfrtip',
-      searchBuilder: {
-        columns: [0,1,2,3,4,5,6]
-      },
-      columns: [
-        { // owner_org → hyperlink on display, raw for search/sort
-          data: 0,
-          render: function(d, type){ return type === 'display' ? linkOwnerOrg(d) : (d ?? ''); }
-        },
-        { data: 1 }, // tracking_number
-        { data: 2 }, // request_number
-        { // numeric sum
-          data: 3, className: 'dt-right',
-          render: function(d, type){ const n = Number(d||0); return type === 'display' ? n.toLocaleString() : n; }
-        },
-        { // Unique Identifier(s) → links on display
-          data: 4,
-          render: function(d, type){ return type === 'display' ? linkUIDs(d) : (d ?? ''); }
-        },
-        { data: 5, className: 'small' }, // summary_en
-        { data: 6, className: 'small' }  // summary_fr
-      ]
-    });
+    // Hook up row expansion (works regardless of cached-first or network-first init)
+    function attachExpand(){
+      jQuery('#report tbody').off('click').on('click','tr', function(){
+        const row = dt.row(this);
+        if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
+        else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
+      });
+    }
+    if (dt) attachExpand();
 
-    // Row expansion toggle for full text
-    jQuery('#report tbody').on('click', 'tr', function(){
-      const row = dt.row(this);
-      if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
-      else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
-    });
+    // 2) Fetch fresh data; if different, live-update table + cache
+    try{
+      const res = await fetch('./report.json?ts=' + Date.now(), { cache: 'no-store' });
+      const fresh = await res.json();
 
-    // Preset buttons
+      // If table isn't initialized yet (no cache path), init now
+      if (!dt){
+        updateStats(fresh);
+        dt = jQuery(tableEl).DataTable({
+          data: toRows(fresh),
+          deferRender: true,
+          autoWidth: false,
+          pageLength: 25,
+          lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
+          order: [[0, "asc"]],
+          dom: 'Qlfrtip',
+          searchBuilder: { columns: [0,1,2,3,4,5,6] },
+          columns: [
+            { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
+            { data: 1 },
+            { data: 2 },
+            { data: 3, className:'dt-right',
+              render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
+            { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
+            { data: 5, className:'small' },
+            { data: 6, className:'small' }
+          ]
+        });
+        attachExpand();
+        await idbPut(KEY, fresh);
+      } else if (!sameMeta(cached, fresh)) {
+        // Preserve current SearchBuilder query if any
+        const sbDetails = (dt.searchBuilder && dt.searchBuilder.getDetails)
+          ? dt.searchBuilder.getDetails()
+          : null;
+
+        updateStats(fresh);
+        dt.clear().rows.add(toRows(fresh)).draw(false);
+
+        if (sbDetails && sbDetails.criteria && sbDetails.criteria.length){
+          try { dt.searchBuilder.rebuild(sbDetails); } catch(e){ console.warn('SB rebuild failed', e); }
+        }
+        await idbPut(KEY, fresh);
+      }
+    }catch(e){
+      console.warn("Network fetch failed; using cache if available.", e);
+      if (!dt && cached){
+        // Already painted from cache above
+      }
+    }
+
+    // 3) Preset buttons (work after DT is live)
     const btnWeak = document.getElementById('preset-weak');
     const btnInformal = document.getElementById('preset-informal');
     const btnClear = document.getElementById('preset-clear');
@@ -440,6 +528,7 @@ def main() -> None:
 })();
 </script>
 """
+
 
     final_html = inject_script_into_html(template_html, loader_js)
     OUT_HTML.write_text(final_html, encoding="utf-8")
