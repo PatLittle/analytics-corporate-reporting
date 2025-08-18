@@ -10,6 +10,8 @@ from typing import Iterable, List
 
 import pandas as pd
 import requests
+from datetime import date
+
 
 
 # ---------------------------------------------------------------------
@@ -287,6 +289,7 @@ def main() -> None:
     )
     print(f"Wrote {OUT_JSON}")
 
+  
     # 6) Inject ONLY the loader script into the template, then write docs/index.html
     #    - IndexedDB-first; only fetch if cache missing.
     #    - No weak-ID preset (removed).
@@ -614,8 +617,10 @@ def main() -> None:
 
 
     final_html = inject_script_into_html(template_html, loader_js)
+    final_html = final_html.replace("{{ build_date }}", date.today().isoformat())
     OUT_HTML.write_text(final_html, encoding="utf-8")
     print(f"Wrote {OUT_HTML}")
+
 
 
 if __name__ == "__main__":
