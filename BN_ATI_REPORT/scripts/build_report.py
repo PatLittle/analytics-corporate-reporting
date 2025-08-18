@@ -309,19 +309,27 @@ def main() -> None:
     });
   }
 
-  // ---------- ensure DataTables v2 + SearchBuilder 1.8.3 ----------
-  async function ensureDataTables2(){
+  // ---------- ensure DataTables v2 + SearchBuilder 1.8.3 + Chart.js 4 ----------
+  async function ensureLibs(){
     if (!window.jQuery) await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
+
+    // DataTables v2 core
     await addCSS("https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css");
     await addScript("https://cdn.datatables.net/2.0.8/js/dataTables.min.js");
+
+    // SearchBuilder
     await addCSS("https://cdn.datatables.net/searchbuilder/1.8.3/css/searchBuilder.dataTables.min.css");
     await addScript("https://cdn.datatables.net/searchbuilder/1.8.3/js/dataTables.searchBuilder.min.js");
+
+    // Chart.js v4
+    if (!window.Chart) await addScript("https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js");
   }
 
   // ---------- IndexedDB (simple wrapper) ----------
   const DB_NAME = "bn_ati_cache";
   const STORE = "reports";
-  const KEY = "report_v1"; // bump if JSON schema changes
+  const KEY_REPORT = "report_v1";     // strong IDs
+  const KEY_WEAK   = "weak_report_v1"; // weak IDs
 
   function idbOpen(){
     return new Promise((resolve, reject) => {
@@ -417,37 +425,124 @@ def main() -> None:
       `Weak: ${Number(data.meta?.counts?.weak_matches||0).toLocaleString()}`;
   }
 
-  // Only Records Informally Requested preset
+  // ---------- weak-id aggregation ----------
+  const WEAK_VALUES = ["c","1","0","NA","na","-","REDACTED","[REDACTED]","TBD-PM-00"];
+
+  function aggWeakCounts(weakJson){
+    // weakJson.rows has weak-only matches; count per owner_org per weak tracking_number
+    const counts = new Map(); // owner_org -> {weakVal:count}
+    for (const r of (weakJson?.rows || [])){
+      const org = (r.owner_org || "").trim();
+      const tn  = (r.tracking_number || "").trim();
+      if (!org || !tn) continue;
+      const weakKey = WEAK_VALUES.includes(tn) ? tn : null;
+      if (!weakKey) continue;
+      if (!counts.has(org)) counts.set(org, Object.fromEntries(WEAK_VALUES.map(v => [v, 0])));
+      counts.get(org)[weakKey] += 1;
+    }
+    // Build arrays
+    const owners = Array.from(counts.keys()).sort();
+    const perWeak = {};
+    for (const w of WEAK_VALUES) perWeak[w] = owners.map(o => counts.get(o)[w] || 0);
+    const totals = owners.map(o => WEAK_VALUES.reduce((sum,w) => sum + (counts.get(o)[w]||0), 0));
+    return { owners, perWeak, totals };
+  }
+
+  function renderWeakTable(agg){
+    const tbody = document.querySelector("#weakTable tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    for (let i=0;i<agg.owners.length;i++){
+      const org = agg.owners[i];
+      const row = document.createElement("tr");
+      const cells = [
+        org,
+        ...WEAK_VALUES.map(w => String(agg.perWeak[w][i])),
+        String(agg.totals[i])
+      ];
+      for (const c of cells){
+        const td = document.createElement("td");
+        td.textContent = c;
+        row.appendChild(td);
+      }
+      tbody.appendChild(row);
+    }
+  }
+
+  function colorPalette(n){
+    // pleasant stacked palette
+    const base = ["#8ecae6","#219ebc","#023047","#ffb703","#fb8500",
+                  "#90be6d","#277da1","#577590","#f94144","#f3722c"];
+    if (n <= base.length) return base.slice(0,n);
+    // repeat if more than base length
+    const arr = [];
+    while (arr.length < n) arr.push(...base);
+    return arr.slice(0,n);
+  }
+
+  function renderWeakChart(agg){
+    const ctx = document.getElementById("weakChart");
+    if (!ctx || !window.Chart) return;
+    const colors = colorPalette(WEAK_VALUES.length);
+    const datasets = WEAK_VALUES.map((w, idx) => ({
+      label: w,
+      data: agg.perWeak[w],
+      backgroundColor: colors[idx],
+      stack: "weak"
+    }));
+    new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: agg.owners,
+        datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, ticks: { autoSkip: true, maxRotation: 45, minRotation: 0 } },
+          y: { stacked: true, beginAtZero: true }
+        },
+        plugins: {
+          legend: { position: "top" },
+          tooltip: { mode: "index", intersect: false }
+        }
+      }
+    });
+  }
+
+  // Only Records Informally Requested preset (Section 1)
   const PRESET_INFORMAL = {
     criteria: [{ data: 'Informal Requests (sum)', condition: '>=', value: [1] }],
     logic: 'AND'
   };
 
   async function main(){
-    await ensureDataTables2();
+    await ensureLibs();
 
     const tableEl = document.getElementById('report');
 
-    // 1) IndexedDB-first: if cached exists, use it; otherwise fetch from web once and cache it.
-    let data = await idbGet(KEY);
+    // ---- report.json (strong) — IndexedDB first; fetch only if cache empty
+    let data = await idbGet(KEY_REPORT);
     if (!data){
       try{
         const res = await fetch('./report.json', { cache: 'no-store' });
         data = await res.json();
-        await idbPut(KEY, data);
+        await idbPut(KEY_REPORT, data);
       }catch(e){
         console.error("Failed to fetch report.json and no cache available.", e);
         return;
       }
     }
 
-    // Initialize table from cached (or freshly fetched) data
+    // Initialize DataTable (Section 1) with horizontal scroll
     updateStats(data);
     const rows = toRows(data);
     const dt = jQuery(tableEl).DataTable({
       data: rows,
       deferRender: true,
       autoWidth: false,
+      scrollX: true,           // << horizontal scroll if wider than container
       pageLength: 25,
       lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
       order: [[0, "asc"]],
@@ -465,24 +560,44 @@ def main() -> None:
       ]
     });
 
-    // Row expansion toggle
+    // Row expansion toggle (Section 1)
     jQuery('#report tbody').on('click', 'tr', function(){
       const row = dt.row(this);
       if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
       else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
     });
 
-    // Preset buttons (no weak preset anymore)
+    // Preset buttons (Section 1)
     const btnInformal = document.getElementById('preset-informal');
     const btnClear = document.getElementById('preset-clear');
     if (btnInformal) btnInformal.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_INFORMAL));
     if (btnClear) btnClear.addEventListener('click', () => dt.searchBuilder.rebuild());
+
+    // ---- weak_bn_id.json (weak) — IndexedDB first; fetch only if cache empty
+    let weakData = await idbGet(KEY_WEAK);
+    if (!weakData){
+      try{
+        const res = await fetch('./weak_bn_id.json', { cache: 'no-store' });
+        weakData = await res.json();
+        await idbPut(KEY_WEAK, weakData);
+      }catch(e){
+        console.warn("Failed to fetch weak_bn_id.json and no cache available.", e);
+        // If no weak data, just skip Section 2 rendering gracefully.
+        return;
+      }
+    }
+
+    // Build Section 2 visuals
+    const agg = aggWeakCounts(weakData);
+    renderWeakChart(agg);
+    renderWeakTable(agg);
   }
 
   main().catch(console.error);
 })();
 </script>
 """
+
 
     final_html = inject_script_into_html(template_html, loader_js)
     OUT_HTML.write_text(final_html, encoding="utf-8")
