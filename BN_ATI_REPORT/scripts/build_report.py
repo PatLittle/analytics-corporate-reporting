@@ -8,33 +8,20 @@ from typing import Iterable, List
 import pandas as pd
 import requests
 
-# ---------------------------------------------------------------------
 # CKAN resource dumps (CSV)
-# ---------------------------------------------------------------------
 A_URL = "https://open.canada.ca/data/en/datastore/dump/299a2e26-5103-4a49-ac3a-53db9fcc06c7?format=csv"
 B_URL = "https://open.canada.ca/data/en/datastore/dump/e664cf3d-6cb7-4aaa-adfa-e459c2552e3e?format=csv"
 C_URL = "https://open.canada.ca/data/en/datastore/dump/19383ca2-b01a-487d-88f7-e1ffbc7d39c2?format=csv"
 
-# ---------------------------------------------------------------------
-# Outputs (workflow working-directory = BN_ATI_REPORT)
-# ---------------------------------------------------------------------
 OUT_DIR = Path("docs")
 OUT_JSON = OUT_DIR / "report.json"
 OUT_HTML = OUT_DIR / "index.html"
 
-# Optional external template (first found wins)
-TEMPLATE_PATHS = [
-    Path("page_template.html"),
-    Path("templates/page_template.html"),
-    Path("docs/page_template.html"),
-]
+# REQUIRED template path (always load this file)
+TEMPLATE_FILE = Path("templates/index.html")
 
-# Chunk alternation to keep regex manageable
 TN_REGEX_CHUNK = 400
 
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
 def download_csv_df(url: str, retries: int = 4, chunk_size: int = 1024 * 1024) -> pd.DataFrame:
     last_err = None
     for i in range(retries):
@@ -61,38 +48,33 @@ def iter_chunks(items: List[str], size: int) -> Iterable[List[str]]:
     for i in range(0, len(items), size):
         yield items[i : i + size]
 
-def load_template_html() -> str | None:
-    for p in TEMPLATE_PATHS:
-        if p.exists():
-            print(f"Using page template: {p}")
-            return p.read_text(encoding="utf-8")
-    return None
-
-def inject_script(html: str, script_tag: str) -> str:
+def inject_script_into_html(html: str, script_tag: str) -> str:
     marker = "<!--REPORT_SCRIPT-->"
     if marker in html:
         return html.replace(marker, script_tag)
-    # insert before </body>, or append
     lower = html.lower()
     idx = lower.rfind("</body>")
     if idx != -1:
         return html[:idx] + script_tag + html[idx:]
     return html + script_tag
 
-# ---------------------------------------------------------------------
-# Build
-# ---------------------------------------------------------------------
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ---------------- B: download & aggregate ----------------
+    if not TEMPLATE_FILE.exists():
+        raise FileNotFoundError(
+            f"Required template not found: {TEMPLATE_FILE}. "
+            "Please add BN_ATI_REPORT/templates/index.html to the repo."
+        )
+    template_html = TEMPLATE_FILE.read_text(encoding="utf-8")
+
+    # --- B
     print("Downloading B …")
     dfB = download_csv_df(B_URL)
     needB = ["owner_org", "Request Number", "Number of Informal Requests", "Unique Identifier"]
     missB = [c for c in needB if c not in dfB.columns]
     if missB:
         raise ValueError(f"B is missing expected columns: {missB}")
-
     metric_col = "Number of Informal Requests"
     dfB[metric_col] = pd.to_numeric(dfB[metric_col], errors="coerce").fillna(0.0)
     dfB_agg = (
@@ -104,14 +86,13 @@ def main() -> None:
     dfB_agg["request_number_lc"] = dfB_agg["Request Number"].str.lower()
     print(f"B rows: {len(dfB):,}  (agg: {len(dfB_agg):,})")
 
-    # ---------------- C: download & merge with B ----------------
+    # --- C
     print("Downloading C …")
     dfC = download_csv_df(C_URL)
     for c in ("owner_org", "request_number", "summary_en", "summary_fr"):
         if c not in dfC.columns:
             dfC[c] = ""
     dfC["request_number_lc"] = dfC["request_number"].str.lower()
-
     dfBC = dfC.merge(
         dfB_agg.drop(columns=["Request Number"]),
         on=["owner_org", "request_number_lc"],
@@ -125,7 +106,7 @@ def main() -> None:
     dfBC["__haystack"] = (dfBC["summary_en"] + " " + dfBC["summary_fr"]).str.lower()
     print(f"C rows: {len(dfC):,}  Merged BC rows: {len(dfBC):,}")
 
-    # ---------------- A: download ----------------
+    # --- A
     print("Downloading A …")
     dfA = download_csv_df(A_URL)
     needA = ["owner_org", "tracking_number"]
@@ -135,58 +116,49 @@ def main() -> None:
     dfA["tn_lc"] = dfA["tracking_number"].str.lower()
     print(f"A rows: {len(dfA):,}")
 
-    # ---------------- Match per owner_org (regex chunks) ----------------
+    # --- match by owner_org with regex chunks
     results = []
     orgs = sorted(set(dfA["owner_org"]).intersection(set(dfBC["owner_org"])))
     print(f"Matching across {len(orgs)} owner_org groups …")
-
     for org in orgs:
         a_org = (dfA.loc[dfA["owner_org"] == org, ["tn_lc", "tracking_number"]]
                    .drop_duplicates().reset_index(drop=True))
-        if a_org.empty:
-            continue
-
+        if a_org.empty: continue
         lut = dict(zip(a_org["tn_lc"], a_org["tracking_number"]))
         bc_org = dfBC.loc[dfBC["owner_org"] == org,
                           ["owner_org","request_number","informal_requests_sum",
                            "unique_identifiers","summary_en","summary_fr","__haystack"]].copy()
-        if bc_org.empty:
-            continue
+        if bc_org.empty: continue
 
         tn_list = [t for t in a_org["tn_lc"].tolist() if t]
-        if not tn_list:
-            continue
+        if not tn_list: continue
 
-        matched_blocks = []
+        blocks = []
         for chunk in iter_chunks(tn_list, TN_REGEX_CHUNK):
             parts = [re.escape(t) for t in chunk]
             pattern = "(?:" + "|".join(parts) + ")"
             mask = bc_org["__haystack"].str.contains(pattern, regex=True)
-            if not mask.any():
-                continue
+            if not mask.any(): continue
             sub = bc_org.loc[mask].copy()
             sub.loc[:, "_match_lc"] = sub["__haystack"].str.extract("(" + pattern + ")", expand=False)
             sub.loc[:, "tracking_number"] = sub["_match_lc"].map(lut).fillna(sub["_match_lc"])
-            matched_blocks.append(sub[["owner_org","tracking_number","request_number",
-                                       "informal_requests_sum","unique_identifiers",
-                                       "summary_en","summary_fr"]])
-        if matched_blocks:
-            results.append(pd.concat(matched_blocks, ignore_index=True))
+            blocks.append(sub[["owner_org","tracking_number","request_number",
+                               "informal_requests_sum","unique_identifiers",
+                               "summary_en","summary_fr"]])
+        if blocks:
+            results.append(pd.concat(blocks, ignore_index=True))
 
-    if results:
-        df_out = pd.concat(results, ignore_index=True).drop_duplicates()
-    else:
-        df_out = pd.DataFrame(columns=["owner_org","tracking_number","request_number",
-                                       "informal_requests_sum","unique_identifiers",
-                                       "summary_en","summary_fr"])
-
+    df_out = (pd.concat(results, ignore_index=True).drop_duplicates()
+              if results else
+              pd.DataFrame(columns=["owner_org","tracking_number","request_number",
+                                    "informal_requests_sum","unique_identifiers",
+                                    "summary_en","summary_fr"]))
     print(f"Matches: {len(df_out):,}")
 
-    # ---------------- Serialize JSON (strict) ----------------
+    # --- JSON
     for col in ["owner_org","tracking_number","request_number","unique_identifiers","summary_en","summary_fr"]:
         if col in df_out.columns:
             df_out[col] = df_out[col].fillna("")
-
     payload = {
         "meta": {
             "counts": {
@@ -210,131 +182,24 @@ def main() -> None:
             for _, r in df_out.iterrows()
         ],
     }
-
     OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False, indent=2), encoding="utf-8")
     print(f"Wrote {OUT_JSON}")
 
-    # ---------------- Build HTML (GCDS template; DataTables in Section 1) ----------------
-    template_html = load_template_html()
-    if template_html is None:
-        # Default GCDS template with DataTables placed inside Section 1.
-        template_html = """<!-- TODO: Remove all comments before deploying your code to production. -->
-<!DOCTYPE html>
-<html dir="ltr" lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-    <meta name="description" content="Add a description to provide a brief summary of the content." />
-    <title>Basic Page Template (EN)</title>
-
-    <!---------- GC Design System Utility ---------->
-    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css" />
-
-    <!---------- GC Design System Components ---------->
-    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css" />
-    <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
-
-    <!-- DataTables CSS (core + SearchPanes + Select) -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/searchpanes/2.2.0/css/searchPanes.dataTables.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/select/1.7.0/css/select.dataTables.min.css">
-
-    <!-- Custom styles -->
-    <style>
-      td.small{max-width:56ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eef;font-size:.85em;margin-right:.25rem}
-      .table-wrap{margin-block: 1.5rem;}
-      table.dataTable {width:100% !important}
-      /* child-row styling */
-      table.dataTable tr.shown td { background: #f9fbff; }
-      .dt-details { padding: .75rem 1rem; line-height: 1.35; }
-      .dt-details h4 { margin:.2rem 0 .4rem; font-size:1rem; }
-      .dt-details p { margin:.25rem 0; }
-    </style>
-  </head>
-
-  <body>
-    <!---------- Header ---------->
-    <gcds-header lang-href="#" skip-to-href="#main-content">
-      <gcds-search slot="search"></gcds-search>
-      <gcds-breadcrumbs slot="breadcrumb">
-        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
-        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
-      </gcds-breadcrumbs>
-    </gcds-header>
-
-    <!---------- Main content ---------->
-    <gcds-container id="main-content" main-container size="xl" centered tag="main">
-      <section>
-        <gcds-heading tag="h1">ATI Requests for Proactively Published Briefing Note Titles and Numbers</gcds-heading>
-        <gcds-text>
-          In accordance with the Access to Information Act, the government proactively publishes titles and reference numbers of memoranda received by ministers and deputy heads. These are often requested under the ATIA.
-        </gcds-text>
-      </section>
-
-      <!-- ▶︎ SECTION 1 (DataTables lives here) -->
-      <section id="section-1">
-        <gcds-heading tag="h2">Section 1</gcds-heading>
-        <!-- Stats populated here -->
-        <gcds-text id="bn-ati-stats"></gcds-text>
-
-        <div class="table-wrap">
-          <gcds-heading tag="h3">BN ATI report</gcds-heading>
-          <table id="report" class="display">
-            <thead>
-              <tr>
-                <th>owner_org</th>
-                <th>tracking_number</th>
-                <th>request_number</th>
-                <th>Informal Requests (sum)</th>
-                <th>Unique Identifier(s)</th>
-                <th>summary_en</th>
-                <th>summary_fr</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section>
-        <gcds-heading tag="h2">Section 2</gcds-heading>
-        <gcds-text>…</gcds-text>
-      </section>
-
-      <section>
-        <gcds-heading tag="h2">Section 3</gcds-heading>
-        <gcds-text>…</gcds-text>
-      </section>
-
-      <gcds-date-modified>2024-08-22</gcds-date-modified>
-    </gcds-container>
-
-    <!---------- Footer ---------->
-    <gcds-footer display="full" contextual-heading="Canadian Digital Service"
-      contextual-links='{ "Why GC Notify": "#","Features": "#", "Activity on GC Notify": "#"}'>
-    </gcds-footer>
-
-    <!--REPORT_SCRIPT-->
-  </body>
-</html>"""
-
-    # Loader: fetch report.json, populate Section 1 table, ensure DT + SearchPanes + Select; add row expansion & renderers.
+    # --- SearchBuilder loader with presets
     loader_js = r"""
 <script>
 (function(){
   function addCSS(href){
     return new Promise(function(resolve,reject){
       if ([...document.styleSheets].some(s => s.href && s.href.includes(href))) return resolve();
-      var l=document.createElement('link'); l.rel='stylesheet'; l.href=href;
+      const l=document.createElement('link'); l.rel='stylesheet'; l.href=href;
       l.onload=resolve; l.onerror=reject; document.head.appendChild(l);
     });
   }
   function addScript(src){
     return new Promise(function(resolve,reject){
       if ([...document.scripts].some(s => s.src && s.src.includes(src))) return resolve();
-      var s=document.createElement('script'); s.src=src; s.defer=true;
+      const s=document.createElement('script'); s.src=src; s.defer=true;
       s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
     });
   }
@@ -344,34 +209,28 @@ def main() -> None:
       await addCSS("https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css");
       await addScript("https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js");
     }
-    // SearchPanes + Select extensions
-    await addCSS("https://cdn.datatables.net/searchpanes/2.2.0/css/searchPanes.dataTables.min.css");
-    await addCSS("https://cdn.datatables.net/select/1.7.0/css/select.dataTables.min.css");
-    await addScript("https://cdn.datatables.net/select/1.7.0/js/dataTables.select.min.js");
-    await addScript("https://cdn.datatables.net/searchpanes/2.2.0/js/dataTables.searchPanes.min.js");
+    // SearchBuilder
+    await addCSS("https://cdn.datatables.net/searchbuilder/1.6.1/css/searchBuilder.dataTables.min.css");
+    await addScript("https://cdn.datatables.net/searchbuilder/1.6.1/js/dataTables.searchBuilder.min.js");
   }
 
   function escapeHtml(s){
-    return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',\"'\":'&#39;'}[m]));
   }
-
   function linkOwnerOrg(val){
     const raw = String(val || '');
     const slug = encodeURIComponent(raw.toLowerCase());
     const url = `https://search.open.canada.ca/briefing_titles/?owner_org=${slug}`;
     return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(raw)}</a>`;
   }
-
   function linkUIDs(val){
     const raw = String(val || '');
     if (!raw.trim()) return '';
-    const parts = raw.split(';').map(s => s.trim()).filter(s => s.length);
+    const parts = raw.split(';').map(s => s.trim()).filter(Boolean);
     const base = "https://open.canada.ca/en/search/ati/reference/";
     return parts.map(id => `<a href="${base}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a>`).join("<br>");
   }
-
   function buildDetails(row){
-    // row = [owner_org, tracking_number, request_number, sum, unique_ids, summary_en, summary_fr]
     return `
       <div class="dt-details">
         <h4>Full details</h4>
@@ -382,9 +241,29 @@ def main() -> None:
         <p><strong>Unique Identifier(s):</strong><br>${linkUIDs(row[4])}</p>
         <p><strong>summary_en:</strong><br>${escapeHtml(row[5])}</p>
         <p><strong>summary_fr:</strong><br>${escapeHtml(row[6])}</p>
-      </div>
-    `;
+      </div>`;
   }
+
+  // Preset definitions (SearchBuilder.Criteria)
+  const PRESET_WEAK_IDS = {
+    criteria: [
+      { data: 'tracking_number', condition: '!=', value: ['c'] },
+      { data: 'tracking_number', condition: '!=', value: ['1'] },
+      { data: 'tracking_number', condition: '!=', value: ['0'] },
+      { data: 'tracking_number', condition: '!=', value: ['NA'] },
+      { data: 'tracking_number', condition: '!=', value: ['na'] },
+      { data: 'tracking_number', condition: '!=', value: ['-'] },
+      { data: 'tracking_number', condition: '!=', value: ['REDACTED'] },
+      { data: 'tracking_number', condition: '!=', value: ['[REDACTED]'] }
+    ],
+    logic: 'AND'
+  };
+  const PRESET_INFORMAL = {
+    criteria: [
+      { data: 'Informal Requests (sum)', condition: '>=', value: [1] }
+    ],
+    logic: 'AND'
+  };
 
   async function main(){
     await ensureDataTables();
@@ -402,7 +281,7 @@ def main() -> None:
       r.summary_fr || ''
     ]));
 
-    // Stats inside Section 1
+    // Stats
     const statsEl = document.getElementById('bn-ati-stats');
     if (statsEl) {
       statsEl.innerHTML =
@@ -415,8 +294,6 @@ def main() -> None:
     }
 
     const table = document.getElementById('report');
-
-    // Initialize DataTables with SearchPanes for every column, custom renderers, and row expansion.
     const dt = jQuery(table).DataTable({
       data: rows,
       deferRender: true,
@@ -424,70 +301,53 @@ def main() -> None:
       pageLength: 25,
       lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
       order: [[0, "asc"]],
-      dom: 'Plfrtip', // P = SearchPanes; l = length; f = filter; r = processing; t = table; i = info; p = paging
-      searchPanes: {
-        columns: [0,1,2,3,4,5,6],
-        layout: 'columns-4',
-        viewTotal: true,
-        cascadePanes: true
+      // SearchBuilder placement
+      dom: 'Qlfrtip',
+      searchBuilder: {
+        columns: [0,1,2,3,4,5,6]
       },
-      select: true,
       columns: [
-        { // owner_org with link (display), plain for sort/filter
+        { // owner_org → hyperlink (display), raw for search/sort
           data: 0,
-          render: function(data, type, row) {
-            if (type === 'display') return linkOwnerOrg(data);
-            return data ?? '';
-          }
+          render: function(d, type){ return type === 'display' ? linkOwnerOrg(d) : (d ?? ''); }
         },
-        { data: 1 },                // tracking_number
-        { data: 2 },                // request_number
-        {                           // numeric sum, right aligned
-          data: 3,
-          className: 'dt-right',
-          render: function(d, type) {
-            const n = Number(d || 0);
-            return type === 'display' ? n.toLocaleString() : n;
-          }
+        { data: 1 }, // tracking_number
+        { data: 2 }, // request_number
+        { // numeric sum
+          data: 3, className: 'dt-right',
+          render: function(d, type){ const n = Number(d||0); return type === 'display' ? n.toLocaleString() : n; }
         },
-        { // Unique Identifier(s) -> linked list
+        { // Unique Identifier(s) → links on display
           data: 4,
-          render: function(data, type) {
-            if (type === 'display') return linkUIDs(data);
-            return data ?? '';
-          }
+          render: function(d, type){ return type === 'display' ? linkUIDs(d) : (d ?? ''); }
         },
-        { // summary_en truncated by CSS but searchable fully
-          data: 5,
-          className: 'small',
-          render: function(d, type) { return d ?? ''; }
-        },
-        { // summary_fr truncated by CSS but searchable fully
-          data: 6,
-          className: 'small',
-          render: function(d, type) { return d ?? ''; }
-        }
+        { data: 5, className: 'small' }, // summary_en
+        { data: 6, className: 'small' }  // summary_fr
       ]
     });
 
-    // Row expansion on click: toggle child row with full values
+    // Row expansion toggle
     jQuery('#report tbody').on('click', 'tr', function(){
       const row = dt.row(this);
-      if (row.child.isShown()) {
-        row.child.hide();
-        jQuery(this).removeClass('shown');
-      } else {
-        row.child(buildDetails(row.data())).show();
-        jQuery(this).addClass('shown');
-      }
+      if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
+      else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
     });
+
+    // Preset buttons
+    const btnWeak = document.getElementById('preset-weak');
+    const btnInformal = document.getElementById('preset-informal');
+    const btnClear = document.getElementById('preset-clear');
+
+    if (btnWeak) btnWeak.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_WEAK_IDS));
+    if (btnInformal) btnInformal.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_INFORMAL));
+    if (btnClear) btnClear.addEventListener('click', () => dt.searchBuilder.rebuild());
   }
 
   main().catch(console.error);
 })();
 </script>
 """
-    final_html = inject_script(template_html, loader_js)
+    final_html = inject_script_into_html(template_html, loader_js)
     OUT_HTML.write_text(final_html, encoding="utf-8")
     print(f"Wrote {OUT_HTML}")
 
