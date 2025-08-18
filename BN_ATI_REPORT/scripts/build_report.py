@@ -412,18 +412,32 @@ def main() -> None:
     ]));
   }
   function updateStats(data){
-    const statsEl = document.getElementById('bn-ati-stats');
-    if (!statsEl) return;
-    statsEl.innerHTML =
-      `<strong>Summary</strong> — ` +
-      `A: ${Number(data.meta?.counts?.A_rows||0).toLocaleString()} · ` +
-      `B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} · ` +
-      `C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} · ` +
-      `BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} · ` +
-      `Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()} · ` +
-      `Strong: ${Number(data.meta?.counts?.strong_matches||0).toLocaleString()} · ` +
-      `Weak: ${Number(data.meta?.counts?.weak_matches||0).toLocaleString()}`;
-  }
+  const statsEl = document.getElementById('bn-ati-stats');
+  if (!statsEl) return;
+
+  const A = Number(data.meta?.counts?.A_rows||0).toLocaleString();
+  const B = Number(data.meta?.counts?.B_rows||0).toLocaleString();
+  const C = Number(data.meta?.counts?.C_rows||0).toLocaleString();
+  const BC = Number(data.meta?.counts?.BC_rows||0).toLocaleString();
+  const matches = Number(data.meta?.counts?.matches||0).toLocaleString();
+  const strong = Number(data.meta?.counts?.strong_matches||0).toLocaleString();
+  const weak = Number(data.meta?.counts?.weak_matches||0).toLocaleString();
+
+  const linkA = `<a href="https://open.canada.ca/data/en/dataset/ee9bd7e8-90a5-45db-9287-85c8cf3589b6/resource/299a2e26-5103-4a49-ac3a-53db9fcc06c7" target="_blank" rel="noopener">Proactive Disclosure - Briefing Note Titles and Numbers</a>`;
+  const linkB = `<a href="https://open.canada.ca/data/en/dataset/2916fad5-ebcc-4c86-b0f3-4f619b29f412/resource/e664cf3d-6cb7-4aaa-adfa-e459c2552e3e" target="_blank" rel="noopener">Analytics - ATI informal requests per summary</a>`;
+  const linkC = `<a href="https://open.canada.ca/data/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2" target="_blank" rel="noopener">Completed Access to Information Request Summaries dataset</a>`;
+
+  statsEl.innerHTML =
+    `<strong>Summary</strong> — ` +
+    `${linkA}: ${A} · ` +
+    `${linkB}: ${B} · ` +
+    `${linkC}: ${C} · ` +
+    `BC (merged): ${BC} · ` +
+    `Matches: ${matches} · ` +
+    `Strong: ${strong} · ` +
+    `Weak: ${weak}`;
+    }
+
 
   // ---------- weak-id aggregation ----------
   const WEAK_VALUES = ["c","1","0","NA","na","-","REDACTED","[REDACTED]","TBD-PM-00"];
