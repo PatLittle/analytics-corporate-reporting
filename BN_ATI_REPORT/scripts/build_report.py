@@ -1,21 +1,7 @@
 # BN_ATI_REPORT/scripts/build_report.py
-"""
-Build BN_ATI report:
-- Download 3 CSV datasets from the Government of Canada Open Data portal
-- B: aggregate "Number of Informal Requests" by (owner_org, Request Number) and collect "Unique Identifier"
-- C: merge the B aggregate on (owner_org, request_number)
-- A: per owner_org, find rows in C whose summary_en/summary_fr contain any A.tracking_number
-- Emit:
-  - docs/report.json (strict JSON, no NaN)
-  - docs/index.html   (from your template if provided, else GCWeb fallback)
-"""
-
 from __future__ import annotations
 
-import io
-import json
-import re
-import time
+import io, json, re, time
 from pathlib import Path
 from typing import Iterable, List
 
@@ -23,37 +9,33 @@ import pandas as pd
 import requests
 
 # ---------------------------------------------------------------------
-# Config
+# CKAN resource dumps (CSV)
 # ---------------------------------------------------------------------
-
 A_URL = "https://open.canada.ca/data/en/datastore/dump/299a2e26-5103-4a49-ac3a-53db9fcc06c7?format=csv"
 B_URL = "https://open.canada.ca/data/en/datastore/dump/e664cf3d-6cb7-4aaa-adfa-e459c2552e3e?format=csv"
 C_URL = "https://open.canada.ca/data/en/datastore/dump/19383ca2-b01a-487d-88f7-e1ffbc7d39c2?format=csv"
 
-# Outputs (workflow's working directory is BN_ATI_REPORT)
+# ---------------------------------------------------------------------
+# Outputs (workflow working-directory = BN_ATI_REPORT)
+# ---------------------------------------------------------------------
 OUT_DIR = Path("docs")
 OUT_JSON = OUT_DIR / "report.json"
 OUT_HTML = OUT_DIR / "index.html"
 
-# Optional template locations (first one found wins)
+# Optional external template (first found wins)
 TEMPLATE_PATHS = [
     Path("page_template.html"),
     Path("templates/page_template.html"),
     Path("docs/page_template.html"),
 ]
 
-# Regex chunk size per owner_org to avoid extremely long patterns
+# Chunk alternation to keep regex manageable
 TN_REGEX_CHUNK = 400
 
 # ---------------------------------------------------------------------
-# Utilities
+# Helpers
 # ---------------------------------------------------------------------
-
-
 def download_csv_df(url: str, retries: int = 4, chunk_size: int = 1024 * 1024) -> pd.DataFrame:
-    """
-    Stream a CSV with retries and return a DataFrame with dtype=str (no NaN).
-    """
     last_err = None
     for i in range(retries):
         try:
@@ -64,29 +46,20 @@ def download_csv_df(url: str, retries: int = 4, chunk_size: int = 1024 * 1024) -
                     if part:
                         buf.write(part)
                 buf.seek(0)
-            # dtype=str + keep_default_na=False => missing become empty string ""
             return pd.read_csv(buf, dtype=str, keep_default_na=False).fillna("")
-        except Exception as e:  # pragma: no cover (network)
+        except Exception as e:
             last_err = e
             print(f"[download_csv_df] attempt {i+1}/{retries} failed: {e}")
             time.sleep(2 * (i + 1))
     raise RuntimeError(f"Failed to download {url}: {last_err}")
 
-
 def agg_unique_identifiers(series: pd.Series) -> str:
-    """
-    Aggregate Unique Identifier values: dedupe + sort + join with '; '.
-    """
     vals = [str(x).strip() for x in series if str(x).strip()]
-    if not vals:
-        return ""
-    return "; ".join(sorted(set(vals)))
-
+    return "; ".join(sorted(set(vals))) if vals else ""
 
 def iter_chunks(items: List[str], size: int) -> Iterable[List[str]]:
     for i in range(0, len(items), size):
         yield items[i : i + size]
-
 
 def load_template_html() -> str | None:
     for p in TEMPLATE_PATHS:
@@ -95,25 +68,20 @@ def load_template_html() -> str | None:
             return p.read_text(encoding="utf-8")
     return None
 
-
 def inject_script(html: str, script_tag: str) -> str:
-    """Insert script into html. If <!--REPORT_SCRIPT--> present, replace it; else insert before </body>."""
     marker = "<!--REPORT_SCRIPT-->"
     if marker in html:
         return html.replace(marker, script_tag)
-    # insert before </body>, or append if not found
+    # insert before </body>, or append
     lower = html.lower()
     idx = lower.rfind("</body>")
     if idx != -1:
         return html[:idx] + script_tag + html[idx:]
     return html + script_tag
 
-
 # ---------------------------------------------------------------------
-# Main build logic
+# Build
 # ---------------------------------------------------------------------
-
-
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -121,22 +89,17 @@ def main() -> None:
     print("Downloading B …")
     dfB = download_csv_df(B_URL)
     needB = ["owner_org", "Request Number", "Number of Informal Requests", "Unique Identifier"]
-    missingB = [c for c in needB if c not in dfB.columns]
-    if missingB:
-        raise ValueError(f"B is missing expected columns: {missingB}")
+    missB = [c for c in needB if c not in dfB.columns]
+    if missB:
+        raise ValueError(f"B is missing expected columns: {missB}")
 
     metric_col = "Number of Informal Requests"
     dfB[metric_col] = pd.to_numeric(dfB[metric_col], errors="coerce").fillna(0.0)
-
     dfB_agg = (
         dfB.groupby(["owner_org", "Request Number"], as_index=False)
-        .agg({metric_col: "sum", "Unique Identifier": agg_unique_identifiers})
-        .rename(
-            columns={
-                metric_col: "informal_requests_sum",
-                "Unique Identifier": "unique_identifiers",
-            }
-        )
+           .agg({metric_col: "sum", "Unique Identifier": agg_unique_identifiers})
+           .rename(columns={metric_col: "informal_requests_sum",
+                            "Unique Identifier": "unique_identifiers"})
     )
     dfB_agg["request_number_lc"] = dfB_agg["Request Number"].str.lower()
     print(f"B rows: {len(dfB):,}  (agg: {len(dfB_agg):,})")
@@ -147,7 +110,6 @@ def main() -> None:
     for c in ("owner_org", "request_number", "summary_en", "summary_fr"):
         if c not in dfC.columns:
             dfC[c] = ""
-
     dfC["request_number_lc"] = dfC["request_number"].str.lower()
 
     dfBC = dfC.merge(
@@ -155,17 +117,11 @@ def main() -> None:
         on=["owner_org", "request_number_lc"],
         how="left",
     )
-
-    # Ensure presence + sanitize NaN for string col
     if "unique_identifiers" not in dfBC.columns:
         dfBC["unique_identifiers"] = ""
     dfBC["unique_identifiers"] = dfBC["unique_identifiers"].fillna("")
-
-    dfBC["informal_requests_sum"] = (
-        pd.to_numeric(dfBC.get("informal_requests_sum", 0.0), errors="coerce").fillna(0.0)
-    )
-
-    # Haystack for summary matching
+    dfBC["informal_requests_sum"] = pd.to_numeric(dfBC.get("informal_requests_sum", 0.0),
+                                                  errors="coerce").fillna(0.0)
     dfBC["__haystack"] = (dfBC["summary_en"] + " " + dfBC["summary_fr"]).str.lower()
     print(f"C rows: {len(dfC):,}  Merged BC rows: {len(dfBC):,}")
 
@@ -173,46 +129,30 @@ def main() -> None:
     print("Downloading A …")
     dfA = download_csv_df(A_URL)
     needA = ["owner_org", "tracking_number"]
-    missingA = [c for c in needA if c not in dfA.columns]
-    if missingA:
-        raise ValueError(f"A is missing expected columns: {missingA}")
-
+    missA = [c for c in needA if c not in dfA.columns]
+    if missA:
+        raise ValueError(f"A is missing expected columns: {missA}")
     dfA["tn_lc"] = dfA["tracking_number"].str.lower()
     print(f"A rows: {len(dfA):,}")
 
-    # ---------------- Match per owner_org with regex chunks ----------------
+    # ---------------- Match per owner_org (regex chunks) ----------------
     results = []
     orgs = sorted(set(dfA["owner_org"]).intersection(set(dfBC["owner_org"])))
     print(f"Matching across {len(orgs)} owner_org groups …")
 
     for org in orgs:
-        a_org = (
-            dfA.loc[dfA["owner_org"] == org, ["tn_lc", "tracking_number"]]
-            .drop_duplicates()
-            .reset_index(drop=True)
-        )
+        a_org = (dfA.loc[dfA["owner_org"] == org, ["tn_lc", "tracking_number"]]
+                   .drop_duplicates().reset_index(drop=True))
         if a_org.empty:
             continue
 
-        # Lookup to restore original casing
         lut = dict(zip(a_org["tn_lc"], a_org["tracking_number"]))
-        # Per-org subset of BC (copy for safe assignment)
-        bc_org = dfBC.loc[
-            dfBC["owner_org"] == org,
-            [
-                "owner_org",
-                "request_number",
-                "informal_requests_sum",
-                "unique_identifiers",
-                "summary_en",
-                "summary_fr",
-                "__haystack",
-            ],
-        ].copy()
+        bc_org = dfBC.loc[dfBC["owner_org"] == org,
+                          ["owner_org","request_number","informal_requests_sum",
+                           "unique_identifiers","summary_en","summary_fr","__haystack"]].copy()
         if bc_org.empty:
             continue
 
-        # Build alternation in chunks to avoid extremely long regexes
         tn_list = [t for t in a_org["tn_lc"].tolist() if t]
         if not tn_list:
             continue
@@ -221,58 +161,29 @@ def main() -> None:
         for chunk in iter_chunks(tn_list, TN_REGEX_CHUNK):
             parts = [re.escape(t) for t in chunk]
             pattern = "(?:" + "|".join(parts) + ")"
-            # contains (regex)
             mask = bc_org["__haystack"].str.contains(pattern, regex=True)
             if not mask.any():
                 continue
-            sub_hits = bc_org.loc[mask].copy()
-            # extract concrete match and map to canonical casing
-            sub_hits.loc[:, "_match_lc"] = sub_hits["__haystack"].str.extract("(" + pattern + ")", expand=False)
-            sub_hits.loc[:, "tracking_number"] = sub_hits["_match_lc"].map(lut).fillna(sub_hits["_match_lc"])
-            matched_blocks.append(
-                sub_hits[
-                    [
-                        "owner_org",
-                        "tracking_number",
-                        "request_number",
-                        "informal_requests_sum",
-                        "unique_identifiers",
-                        "summary_en",
-                        "summary_fr",
-                    ]
-                ]
-            )
-
+            sub = bc_org.loc[mask].copy()
+            sub.loc[:, "_match_lc"] = sub["__haystack"].str.extract("(" + pattern + ")", expand=False)
+            sub.loc[:, "tracking_number"] = sub["_match_lc"].map(lut).fillna(sub["_match_lc"])
+            matched_blocks.append(sub[["owner_org","tracking_number","request_number",
+                                       "informal_requests_sum","unique_identifiers",
+                                       "summary_en","summary_fr"]])
         if matched_blocks:
             results.append(pd.concat(matched_blocks, ignore_index=True))
 
     if results:
         df_out = pd.concat(results, ignore_index=True).drop_duplicates()
     else:
-        df_out = pd.DataFrame(
-            columns=[
-                "owner_org",
-                "tracking_number",
-                "request_number",
-                "informal_requests_sum",
-                "unique_identifiers",
-                "summary_en",
-                "summary_fr",
-            ]
-        )
+        df_out = pd.DataFrame(columns=["owner_org","tracking_number","request_number",
+                                       "informal_requests_sum","unique_identifiers",
+                                       "summary_en","summary_fr"])
 
     print(f"Matches: {len(df_out):,}")
 
-    # ---------------- Serialize (strict JSON) ----------------
-    # Ensure no NaN in string columns
-    for col in [
-        "owner_org",
-        "tracking_number",
-        "request_number",
-        "unique_identifiers",
-        "summary_en",
-        "summary_fr",
-    ]:
+    # ---------------- Serialize JSON (strict) ----------------
+    for col in ["owner_org","tracking_number","request_number","unique_identifiers","summary_en","summary_fr"]:
         if col in df_out.columns:
             df_out[col] = df_out[col].fillna("")
 
@@ -300,126 +211,196 @@ def main() -> None:
         ],
     }
 
-    with OUT_JSON.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, allow_nan=False, indent=2)
+    OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False, indent=2), encoding="utf-8")
     print(f"Wrote {OUT_JSON}")
 
-    # ---------------- Build HTML from template or fallback ----------------
+    # ---------------- Build HTML (GCDS template + DataTables) ----------------
     template_html = load_template_html()
     if template_html is None:
-        # Fallback GCWeb page
-        template_html = """<!DOCTYPE html>
-<html lang="en" class="no-js">
-<head>
-  <meta charset="utf-8" />
-  <title>BN ATI Report</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="https://www.canada.ca/etc/designs/canada/cdts/gcweb/v5_0_2/cdts/cdts-styles.css">
-  <link rel="stylesheet" href="https://wet-boew.github.io/wet-boew/themes-dist/GCWeb/wet-boew/css/theme.min.css">
-  <link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css">
-  <style>
-    .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eee;font-size:.85em}
-    .muted{color:#555}.w-clip{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .mono{font-family:ui-monospace, Menlo, Consolas, monospace}
-    td.small{max-width:560px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  </style>
-</head>
-<body vocab="http://schema.org/" typeof="WebPage">
-  <main role="main" class="container">
-    <h1 class="mrgn-tp-md">BN ATI Report</h1>
-    <section id="stats" class="mrgn-bttm-lg well well-sm">
-      <strong>Summary:</strong>
-      <span id="count-a" class="pill">A: …</span>
-      <span id="count-b" class="pill">B: …</span>
-      <span id="count-c" class="pill">C: …</span>
-      <span id="count-bc" class="pill">BC: …</span>
-      <span id="count-m" class="pill">Matches: …</span>
-    </section>
-    <table id="report" class="wb-tables table table-striped table-hover" data-wb-tables='{"ordering": true, "searching": true, "pageLength": 25}'>
-      <thead>
-        <tr>
-          <th>owner_org</th>
-          <th>tracking_number</th>
-          <th>request_number</th>
-          <th>Informal Requests (sum)</th>
-          <th>Unique Identifier(s)</th>
-          <th>summary_en</th>
-          <th>summary_fr</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </main>
-  <!--REPORT_SCRIPT-->
-</body>
+        # Your provided GCDS template as the default (kept verbatim), just with <!--REPORT_SCRIPT--> marker.
+        template_html = """<!-- TODO: Remove all comments before deploying your code to production. -->
+<!DOCTYPE html>
+<html dir="ltr" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Add a description to provide a brief summary of the content." />
+    <title>Basic Page Template (EN)</title>
+
+    <!---------- GC Design System Utility ---------->
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css" />
+
+    <!---------- GC Design System Components ---------->
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css" />
+    <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
+
+    <!-- DataTables (CSS only here; JS injected by loader if missing) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
+
+    <!-- Custom styles -->
+    <style>
+      td.small{max-width:56ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .pill{display:inline-block;padding:.15rem .4rem;border-radius:999px;background:#eef;font-size:.85em;margin-right:.25rem}
+      .table-wrap{margin-block: 1.5rem;}
+      table.dataTable {width:100% !important}
+    </style>
+  </head>
+
+  <body>
+    <!---------- Header ---------->
+    <gcds-header lang-href="#" skip-to-href="#main-content">
+      <gcds-search slot="search"></gcds-search>
+      <gcds-breadcrumbs slot="breadcrumb">
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+      </gcds-breadcrumbs>
+    </gcds-header>
+
+    <!---------- Main content ---------->
+    <gcds-container id="main-content" main-container size="xl" centered tag="main">
+      <section>
+        <gcds-heading tag="h1">Basic page</gcds-heading>
+        <gcds-text>
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </gcds-text>
+      </section>
+
+      <section class="table-wrap">
+        <gcds-heading tag="h2">BN ATI report</gcds-heading>
+        <!-- The table will be created and enhanced by DataTables -->
+        <table id="report" class="display">
+          <thead>
+            <tr>
+              <th>owner_org</th>
+              <th>tracking_number</th>
+              <th>request_number</th>
+              <th>Informal Requests (sum)</th>
+              <th>Unique Identifier(s)</th>
+              <th>summary_en</th>
+              <th>summary_fr</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <gcds-date-modified>2024-08-22</gcds-date-modified>
+    </gcds-container>
+
+    <!---------- Footer ---------->
+    <gcds-footer display="full" contextual-heading="Canadian Digital Service"
+      contextual-links='{ "Why GC Notify": "#","Features": "#", "Activity on GC Notify": "#"}'>
+    </gcds-footer>
+
+    <!--REPORT_SCRIPT-->
+  </body>
 </html>"""
 
-    # The data-loading script (works with/without WET/DataTables present)
+    # Loader: fetch report.json, populate table, ensure DataTables+jQuery are present, then initialize.
     loader_js = r"""
 <script>
 (function(){
-  async function load() {
+  function addCSS(href){
+    return new Promise(function(resolve,reject){
+      if ([...document.styleSheets].some(s => s.href && s.href.includes('datatables'))) return resolve();
+      var l=document.createElement('link'); l.rel='stylesheet'; l.href=href;
+      l.onload=resolve; l.onerror=reject; document.head.appendChild(l);
+    });
+  }
+  function addScript(src){
+    return new Promise(function(resolve,reject){
+      if ([...document.scripts].some(s => s.src && s.src.includes(src.split('/').pop()))) return resolve();
+      var s=document.createElement('script'); s.src=src; s.defer=true;
+      s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
+    });
+  }
+  async function ensureDataTables(){
+    // jQuery + DataTables (1.13.x)
+    if (!window.jQuery) await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
+    if (!jQuery.fn || !jQuery.fn.dataTable) {
+      await addCSS("https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css");
+      await addScript("https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js");
+    }
+  }
+
+  async function main(){
+    await ensureDataTables();
+
     const res = await fetch('./report.json', {cache: 'no-store'});
     const data = await res.json();
 
-    // Stats (if present)
-    function setText(id, txt){
-      var el = document.getElementById(id);
-      if (el) el.textContent = txt;
-    }
-    if (data.meta && data.meta.counts){
-      const c = data.meta.counts;
-      setText('count-a',  `A: ${(+c.A_rows||0).toLocaleString()}`);
-      setText('count-b',  `B: ${(+c.B_rows||0).toLocaleString()}`);
-      setText('count-c',  `C: ${(+c.C_rows||0).toLocaleString()}`);
-      setText('count-bc', `BC: ${(+c.BC_rows||0).toLocaleString()}`);
-      setText('count-m',  `Matches: ${(+c.matches||0).toLocaleString()}`);
-    }
+    const rows = (data.rows || []).map(r => ([
+      r.owner_org || '',
+      r.tracking_number || '',
+      r.c_request_number || '',
+      (r.informal_requests_sum || 0),
+      r.unique_identifiers || '',
+      r.summary_en || '',
+      r.summary_fr || ''
+    ]));
 
-    // Ensure a table exists
-    var table = document.getElementById('report');
-    if (!table) {
-      table = document.createElement('table');
-      table.id = 'report';
-      table.className = 'wb-tables table table-striped table-hover';
-      table.setAttribute('data-wb-tables','{"ordering": true, "searching": true, "pageLength": 25}');
-      var thead = document.createElement('thead');
-      thead.innerHTML = '<tr>' +
-        '<th>owner_org</th><th>tracking_number</th><th>request_number</th>' +
-        '<th>Informal Requests (sum)</th><th>Unique Identifier(s)</th>' +
-        '<th>summary_en</th><th>summary_fr</th></tr>';
-      var tbody = document.createElement('tbody');
-      table.appendChild(thead); table.appendChild(tbody);
-      (document.querySelector('main') || document.body).appendChild(table);
+    const table = document.getElementById('report');
+    const tbody = table.querySelector('tbody');
+    // Fill tbody fast via DocumentFragment
+    const frag = document.createDocumentFragment();
+    for (const row of rows) {
+      const tr = document.createElement('tr');
+      for (let i=0;i<row.length;i++){
+        const td = document.createElement('td');
+        if (i>=5) td.className = 'small'; // summaries
+        td.textContent = (row[i] == null) ? '' : String(row[i]);
+        tr.appendChild(td);
+      }
+      frag.appendChild(tr);
     }
-    var tbody = table.querySelector('tbody') || document.createElement('tbody');
-    if (!table.querySelector('tbody')) table.appendChild(tbody);
+    tbody.innerHTML = '';
+    tbody.appendChild(frag);
 
-    // Populate rows
-    (data.rows || []).forEach(function(r){
-      var tr = document.createElement('tr');
-      function td(v, cls){ var x=document.createElement('td'); if(cls) x.className=cls; x.textContent = v==null?'':String(v); return x; }
-      tr.appendChild(td(r.owner_org));
-      tr.appendChild(td(r.tracking_number));
-      tr.appendChild(td(r.c_request_number || ''));
-      tr.appendChild(td((r.informal_requests_sum||0).toLocaleString()));
-      tr.appendChild(td(r.unique_identifiers || ''));
-      tr.appendChild(td(r.summary_en || '', 'small'));
-      tr.appendChild(td(r.summary_fr || '', 'small'));
-      tbody.appendChild(tr);
+    // Initialize DataTables
+    const dt = jQuery(table).DataTable({
+      pageLength: 25,
+      lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
+      order: [[0, "asc"]],
+      deferRender: true,
+      autoWidth: false,
+      layout: {
+        topStart: 'search',
+        topEnd: 'pageLength',
+        bottomStart: 'info',
+        bottomEnd: 'paging'
+      },
+      columnDefs: [
+        { targets: [5,6], searchable: true }, // summaries searchable
+        { targets: [3], className: 'dt-right' } // numeric align
+      ]
     });
 
-    // Initialize WET, if present
-    if (window.wb && window.wb.shell) { window.wb.shell.init($(document)); }
+    // Optional stats: show counts above table using GCDS text
+    const host = document.querySelector('#main-content') || document.body;
+    const statsId = 'bn-ati-stats';
+    if (!document.getElementById(statsId)) {
+      const s = document.createElement('section');
+      s.id = statsId;
+      s.innerHTML = `
+        <gcds-text>
+          <strong>Summary</strong> —
+          A: ${Number(data.meta?.counts?.A_rows||0).toLocaleString()} ·
+          B: ${Number(data.meta?.counts?.B_rows||0).toLocaleString()} ·
+          C: ${Number(data.meta?.counts?.C_rows||0).toLocaleString()} ·
+          BC: ${Number(data.meta?.counts?.BC_rows||0).toLocaleString()} ·
+          Matches: ${Number(data.meta?.counts?.matches||0).toLocaleString()}
+        </gcds-text>`;
+      host.insertBefore(s, host.querySelector('.table-wrap') || host.firstChild);
+    }
   }
-  load().catch(console.error);
+
+  main().catch(console.error);
 })();
 </script>
 """
     final_html = inject_script(template_html, loader_js)
     OUT_HTML.write_text(final_html, encoding="utf-8")
     print(f"Wrote {OUT_HTML}")
-
 
 if __name__ == "__main__":
     main()
