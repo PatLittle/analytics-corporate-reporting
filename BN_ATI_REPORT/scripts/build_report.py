@@ -328,48 +328,6 @@ def main() -> None:
     if (!window.Chart) await addScript("https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js");
   }
 
-  // ---------- IndexedDB (simple wrapper) ----------
-  const DB_NAME = "bn_ati_cache";
-  const STORE = "reports";
-  const KEY_REPORT = "report_v1";     // strong IDs
-  const KEY_WEAK   = "weak_report_v1"; // weak IDs
-
-  function idbOpen(){
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  async function idbGet(key){
-    try{
-      const db = await idbOpen();
-      return await new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, "readonly");
-        const store = tx.objectStore(STORE);
-        const req = store.get(key);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-      });
-    }catch(e){ console.warn("idbGet failed", e); return null; }
-  }
-  async function idbPut(key, value){
-    try{
-      const db = await idbOpen();
-      return await new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, "readwrite");
-        const store = tx.objectStore(STORE);
-        const req = store.put(value, key);
-        req.onsuccess = () => resolve(true);
-        req.onerror = () => reject(req.error);
-      });
-    }catch(e){ console.warn("idbPut failed", e); return false; }
-  }
-
   // ---------- utilities ----------
   function escapeHtml(s){
     return String(s ?? '').replace(/[&<>"']/g, m => ({
@@ -389,20 +347,48 @@ def main() -> None:
     const base = "https://open.canada.ca/en/search/ati/reference/";
     return parts.map(id => `<a href="${base}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a>`).join("<br>");
   }
+
+  // tracking_number record link: https://search.open.canada.ca/briefing_titles/record/{owner_org},{tracking_number}
+  function linkTrackingNumber(owner_org, tracking_number){
+    const org = String(owner_org || '');
+    const tn  = String(tracking_number || '');
+    if (!org || !tn) return escapeHtml(tn);
+    const url = `https://search.open.canada.ca/briefing_titles/record/${encodeURIComponent(org)},${encodeURIComponent(tn)}`;
+    return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(tn)}</a>`;
+  }
+
+  // request_number link to C dataset with encoded filters
+  function linkRequestNumber(owner_org, request_number){
+    const org = String(owner_org || '');
+    const rn  = String(request_number || '');
+    if (!org || !rn) return escapeHtml(rn);
+    const filterVal = `owner_org:${org}|request_number:${rn}`;
+    const url = "https://open.canada.ca/data/en/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2?filters=" + encodeURIComponent(filterVal);
+    return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(rn)}</a>`;
+  }
+
   function buildDetails(row){
     // row = [owner_org, tracking_number, request_number, sum, unique_ids, summary_en, summary_fr]
+    const owner = row[0] ?? '';
+    const tn = row[1] ?? '';
+    const rn = row[2] ?? '';
+    const sum = Number(row[3] || 0);
+    const uids = row[4] ?? '';
+    const s_en = row[5] ?? '';
+    const s_fr = row[6] ?? '';
     return `
       <div class="dt-details">
         <h4>Full details</h4>
-        <p><strong>owner_org:</strong> ${escapeHtml(row[0])}</p>
-        <p><strong>tracking_number:</strong> ${escapeHtml(row[1])}</p>
-        <p><strong>request_number:</strong> ${escapeHtml(row[2])}</p>
-        <p><strong>Informal Requests (sum):</strong> ${Number(row[3] || 0).toLocaleString()}</p>
-        <p><strong>Unique Identifier(s):</strong><br>${linkUIDs(row[4])}</p>
-        <p><strong>summary_en:</strong><br>${escapeHtml(row[5])}</p>
-        <p><strong>summary_fr:</strong><br>${escapeHtml(row[6])}</p>
+        <p><strong>owner_org:</strong> ${escapeHtml(owner)}</p>
+        <p><strong>tracking_number:</strong> ${linkTrackingNumber(owner, tn)}</p>
+        <p><strong>request_number:</strong> ${linkRequestNumber(owner, rn)}</p>
+        <p><strong>Informal Requests (sum):</strong> ${sum.toLocaleString()}</p>
+        <p><strong>Unique Identifier(s):</strong><br>${linkUIDs(uids)}</p>
+        <p><strong>summary_en:</strong><br>${escapeHtml(s_en)}</p>
+        <p><strong>summary_fr:</strong><br>${escapeHtml(s_fr)}</p>
       </div>`;
   }
+
   function toRows(json){
     return (json?.rows || []).map(r => ([
       r.owner_org || '',
@@ -414,39 +400,41 @@ def main() -> None:
       r.summary_fr || ''
     ]));
   }
+
+  // stats with dataset links
   function updateStats(data){
-  const statsEl = document.getElementById('bn-ati-stats');
-  if (!statsEl) return;
+    const statsEl = document.getElementById('bn-ati-stats');
+    if (!statsEl) return;
 
-  const A = Number(data.meta?.counts?.A_rows||0).toLocaleString();
-  const B = Number(data.meta?.counts?.B_rows||0).toLocaleString();
-  const C = Number(data.meta?.counts?.C_rows||0).toLocaleString();
-  const BC = Number(data.meta?.counts?.BC_rows||0).toLocaleString();
-  const matches = Number(data.meta?.counts?.matches||0).toLocaleString();
-  const strong = Number(data.meta?.counts?.strong_matches||0).toLocaleString();
-  const weak = Number(data.meta?.counts?.weak_matches||0).toLocaleString();
+    const A = Number(data.meta?.counts?.A_rows||0).toLocaleString();
+    const B = Number(data.meta?.counts?.B_rows||0).toLocaleString();
+    const C = Number(data.meta?.counts?.C_rows||0).toLocaleString();
+    const BC = Number(data.meta?.counts?.BC_rows||0).toLocaleString();
+    const matches = Number(data.meta?.counts?.matches||0).toLocaleString();
+    const strong = Number(data.meta?.counts?.strong_matches||0).toLocaleString();
+    const weak = Number(data.meta?.counts?.weak_matches||0).toLocaleString();
 
-  const linkA = `<a href="https://open.canada.ca/data/en/dataset/ee9bd7e8-90a5-45db-9287-85c8cf3589b6/resource/299a2e26-5103-4a49-ac3a-53db9fcc06c7" target="_blank" rel="noopener">Proactive Disclosure - Briefing Note Titles and Numbers</a>`;
-  const linkB = `<a href="https://open.canada.ca/data/en/dataset/2916fad5-ebcc-4c86-b0f3-4f619b29f412/resource/e664cf3d-6cb7-4aaa-adfa-e459c2552e3e" target="_blank" rel="noopener">Analytics - ATI informal requests per summary</a>`;
-  const linkC = `<a href="https://open.canada.ca/data/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2" target="_blank" rel="noopener">Completed Access to Information Request Summaries dataset</a>`;
+    const linkA = `<a href="https://open.canada.ca/data/en/dataset/ee9bd7e8-90a5-45db-9287-85c8cf3589b6/resource/299a2e26-5103-4a49-ac3a-53db9fcc06c7" target="_blank" rel="noopener">Proactive Disclosure - Briefing Note Titles and Numbers</a>`;
+    const linkB = `<a href="https://open.canada.ca/data/en/dataset/2916fad5-ebcc-4c86-b0f3-4f619b29f412/resource/e664cf3d-6cb7-4aaa-adfa-e459c2552e3e" target="_blank" rel="noopener">Analytics - ATI informal requests per summary</a>`;
+    const linkC = `<a href="https://open.canada.ca/data/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2" target="_blank" rel="noopener">Completed Access to Information Request Summaries dataset</a>`;
 
-  statsEl.innerHTML =
-    `<strong>Summary</strong> — ` +
-    `<br> ${linkA}: ${A} · ` +
-    `<br> ${linkB}: ${B} · ` +
-    `<br> ${linkC}: ${C} · ` +
-    `<br> Joined ATI Summaries and Informal Request Data (merged): ${BC} · ` +
-    `<br> Matches of BN Reference Number to ATI Summary Description Same Org: ${matches} · ` +
-    `<br> Strong Matches - Weak IDs Removed: ${strong} · ` +
-    `Weak Matches BN Ref Numbers such as NA,0,or '-' cause false positive matches: ${weak}`;
-    }
+    statsEl.innerHTML = `
+      <div>
+        <strong>Summary</strong> —
+        <br> ${linkA}: ${A}
+        <br> ${linkB}: ${B}
+        <br> ${linkC}: ${C}
+        <br> Joined ATI Summaries and Informal Request Data (merged): ${BC}
+        <br> Matches of BN Reference Number to ATI Summary Description Same Org: ${matches}
+        <br> Strong Matches - Weak IDs Removed: ${strong}
+        <br> Weak Matches BN Ref Numbers such as NA, 0, or '-' cause false positive matches: ${weak}
+      </div>`;
+  }
 
-
-  // ---------- weak-id aggregation ----------
+  // ---------- weak-id aggregation for Section 2 ----------
   const WEAK_VALUES = ["c","1","0","NA","na","-","REDACTED","[REDACTED]","TBD-PM-00"];
 
   function aggWeakCounts(weakJson){
-    // weakJson.rows has weak-only matches; count per owner_org per weak tracking_number
     const counts = new Map(); // owner_org -> {weakVal:count}
     for (const r of (weakJson?.rows || [])){
       const org = (r.owner_org || "").trim();
@@ -457,7 +445,6 @@ def main() -> None:
       if (!counts.has(org)) counts.set(org, Object.fromEntries(WEAK_VALUES.map(v => [v, 0])));
       counts.get(org)[weakKey] += 1;
     }
-    // Build arrays
     const owners = Array.from(counts.keys()).sort();
     const perWeak = {};
     for (const w of WEAK_VALUES) perWeak[w] = owners.map(o => counts.get(o)[w] || 0);
@@ -487,11 +474,9 @@ def main() -> None:
   }
 
   function colorPalette(n){
-    // pleasant stacked palette
     const base = ["#8ecae6","#219ebc","#023047","#ffb703","#fb8500",
                   "#90be6d","#277da1","#577590","#f94144","#f3722c"];
     if (n <= base.length) return base.slice(0,n);
-    // repeat if more than base length
     const arr = [];
     while (arr.length < n) arr.push(...base);
     return arr.slice(0,n);
@@ -509,10 +494,7 @@ def main() -> None:
     }));
     new Chart(ctx, {
       type: "bar",
-      data: {
-        labels: agg.owners,
-        datasets
-      },
+      data: { labels: agg.owners, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -521,7 +503,8 @@ def main() -> None:
           y: { stacked: true, beginAtZero: true }
         },
         plugins: {
-          legend: { position: "top" },
+          legend: { position: "top", labels: { font: { size: 16 } } },
+          title: { display: true, text: "Weak BN IDs per Owner Org", font: { size: 20 } },
           tooltip: { mode: "index", intersect: false }
         }
       }
@@ -537,47 +520,44 @@ def main() -> None:
   async function main(){
     await ensureLibs();
 
+    // ---- Load strong matches report.json directly
+    const reportRes = await fetch('./report.json', { cache: 'no-store' });
+    const data = await reportRes.json();
+
+    updateStats(data);
+
+    const rows = toRows(data);
     const tableEl = document.getElementById('report');
 
-    // ---- report.json (strong) — IndexedDB first; fetch only if cache empty
-    let data = await idbGet(KEY_REPORT);
-    if (!data){
-      try{
-        const res = await fetch('./report.json', { cache: 'no-store' });
-        data = await res.json();
-        await idbPut(KEY_REPORT, data);
-      }catch(e){
-        console.error("Failed to fetch report.json and no cache available.", e);
-        return;
-      }
-    }
-
-    // Initialize DataTable (Section 1) with horizontal scroll
-    updateStats(data);
-    const rows = toRows(data);
     const dt = jQuery(tableEl).DataTable({
       data: rows,
       deferRender: true,
       autoWidth: false,
-      scrollX: true,           // << horizontal scroll if wider than container
+      scrollX: true,
       pageLength: 25,
       lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
       order: [[0, "asc"]],
       dom: 'Qlfrtip',
       searchBuilder: { columns: [0,1,2,3,4,5,6] },
       columns: [
+        // owner_org → hyperlink on display, raw for search/sort
         { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
-        { data: 1 },
-        { data: 2 },
-        { data: 3, className:'dt-right',
-          render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
+        // tracking_number → record link using owner_org + tracking_number
+        { data: 1, render: function(d, type, row){ return type==='display' ? linkTrackingNumber(row[0], d) : (d ?? ''); } },
+        // request_number → filters link with owner_org + request_number
+        { data: 2, render: function(d, type, row){ return type==='display' ? linkRequestNumber(row[0], d) : (d ?? ''); } },
+        // numeric sum
+        { data: 3, className:'dt-right', render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
+        // Unique Identifier(s) → links on display
         { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
-        { data: 5, className:'small' },
-        { data: 6, className:'small' }
+        // summary_en (hidden)
+        { data: 5, visible: false },
+        // summary_fr (hidden)
+        { data: 6, visible: false }
       ]
     });
 
-    // Row expansion toggle (Section 1)
+    // Row expansion toggle: show hidden summaries + details
     jQuery('#report tbody').on('click', 'tr', function(){
       const row = dt.row(this);
       if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
@@ -590,30 +570,23 @@ def main() -> None:
     if (btnInformal) btnInformal.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_INFORMAL));
     if (btnClear) btnClear.addEventListener('click', () => dt.searchBuilder.rebuild());
 
-    // ---- weak_bn_id.json (weak) — IndexedDB first; fetch only if cache empty
-    let weakData = await idbGet(KEY_WEAK);
-    if (!weakData){
-      try{
-        const res = await fetch('./weak_bn_id.json', { cache: 'no-store' });
-        weakData = await res.json();
-        await idbPut(KEY_WEAK, weakData);
-      }catch(e){
-        console.warn("Failed to fetch weak_bn_id.json and no cache available.", e);
-        // If no weak data, just skip Section 2 rendering gracefully.
-        return;
-      }
+    // ---- Load weak matches weak_bn_id.json directly (for Section 2)
+    try{
+      const weakRes = await fetch('./weak_bn_id.json', { cache: 'no-store' });
+      const weakData = await weakRes.json();
+      const agg = aggWeakCounts(weakData);
+      renderWeakChart(agg);
+      renderWeakTable(agg);
+    }catch(e){
+      console.warn("Failed to load weak_bn_id.json", e);
     }
-
-    // Build Section 2 visuals
-    const agg = aggWeakCounts(weakData);
-    renderWeakChart(agg);
-    renderWeakTable(agg);
   }
 
   main().catch(console.error);
 })();
 </script>
 """
+
 
 
     final_html = inject_script_into_html(template_html, loader_js)
