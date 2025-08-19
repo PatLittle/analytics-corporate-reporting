@@ -1,125 +1,107 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>BN ATI Report</title>
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css" />
-  <style>
-    body { font-family: sans-serif; margin: 2rem; }
-    table.dataTable { width: 100% !important; }
-    .dt-right { text-align: right; }
-  </style>
-</head>
-<body>
-  <h1>Briefing Note ATI Report</h1>
+<html dir="ltr" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="BN ATI Report" />
+    <title>BN ATI Report</title>
 
-  <p>Generated on: <gcds-date-modified>{{ build_date }}</gcds-date-modified></p>
+    <!-- GC Design System -->
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css" />
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css" />
+    <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
 
-  <h2>Section 1: Strong Matches</h2>
-  <table id="report" class="display nowrap"></table>
+    <style>
+      gcds-container[main-container] section { margin-left: auto; margin-right: auto; }
+      .table-wrap { margin-block: 1.5rem; overflow-x: auto; }
+      table { width: 100%; }
+      table.dataTable tr.shown td { background: #f9fbff; }
+      .dt-details { padding: .75rem 1rem; line-height: 1.35; }
+      .dt-details h4 { margin: .2rem 0 .4rem; font-size: 1rem; }
+      .dt-details p { margin: .25rem 0; }
 
-  <h2>Section 2: Weak Matches</h2>
-  <div id="weak-table"></div>
+      /* Section 2: chart sizing and font bump */
+      .chart-wrap { width: 71.25rem; margin: 0 auto; font-size: 1.1rem; }
+      #weakChart { width: 100%; height: 520px; }
+    </style>
+  </head>
 
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-  <script type="module">
-    import { createDbWorker } from "https://unpkg.com/sql.js-httpvfs/dist/sqlite.worker.js";
+  <body>
+    <gcds-header lang-href="#" skip-to-href="#main-content">
+      <gcds-search slot="search"></gcds-search>
+      <gcds-breadcrumbs slot="breadcrumb">
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+      </gcds-breadcrumbs>
+    </gcds-header>
 
-    (async () => {
-      const worker = await createDbWorker(
-        [{
-          from: "inline",
-          config: {
-            serverMode: "full",
-            requestChunkSize: 4096,
-            url: "./data.sqlite"
-          }
-        }],
-        "https://unpkg.com/sql.js-httpvfs/dist/sqlite.worker.sql-wasm.js"
-      );
+    <gcds-container id="main-content" main-container size="xl" centered tag="main">
+      <section>
+        <gcds-heading tag="h1">BN × ATI Report</gcds-heading>
+        <gcds-text>
+          This report cross-references BN tracking numbers in ATI summaries, and aggregates informal request counts.
+          Click a row to view full details.
+        </gcds-text>
+      </section>
 
-      async function q(sql, params=[]) {
-        return await worker.db.query(sql, params);
-      }
+      <!-- Section 1: Stats + main paged table (SQLite-backed) -->
+      <section id="section-1">
+        <gcds-heading tag="h2">Section 1</gcds-heading>
+        <gcds-text id="bn-ati-stats"></gcds-text>
 
-      // DataTable
-      const table = $('#report').DataTable({
-        serverSide: true,
-        processing: true,
-        searching: false,
-        scrollX: true,
-        lengthMenu: [[10,25,50,100],[10,25,50,100]],
-        ajax: async (data, callback) => {
-          const start = data.start || 0;
-          const length = data.length || 25;
-          const colMap = ["owner_org","tracking_number","request_number","informal_requests_sum","unique_identifiers"];
-          const orderCol = colMap[(data.order?.[0]?.column ?? 0)] || "owner_org";
-          const orderDir = (data.order?.[0]?.dir ?? "asc").toUpperCase() === "DESC" ? "DESC" : "ASC";
+        <div class="table-wrap">
+          <gcds-heading tag="h3">BN ATI report</gcds-heading>
+          <table id="report" class="display nowrap"></table>
+        </div>
+      </section>
 
-          const totalRes = await q("SELECT COUNT(*) AS c FROM strong_matches");
-          const recordsTotal = totalRes[0]?.c || 0;
+      <!-- Section 2: Stacked bar chart + details table -->
+      <section id="section-2" style="text-align:center;">
+        <gcds-heading tag="h2">Section 2</gcds-heading>
+        <gcds-text>
+          Weak BN ID distribution by owner_org (stacked). Expand to view raw counts.
+        </gcds-text>
 
-          const rows = await q(
-            `SELECT owner_org, tracking_number, request_number, informal_requests_sum, unique_identifiers, summary_en, summary_fr
-             FROM strong_matches
-             ORDER BY ${orderCol} ${orderDir}
-             LIMIT ? OFFSET ?`,
-            [length, start]
-          );
+        <div class="chart-wrap">
+          <canvas id="weakChart" aria-label="Weak BN ID counts per owner_org"></canvas>
+        </div>
 
-          const dataRows = rows.map(r => [
-            r.owner_org,
-            r.tracking_number,
-            r.request_number,
-            r.informal_requests_sum || 0,
-            r.unique_identifiers || "",
-            r.summary_en || "",
-            r.summary_fr || ""
-          ]);
+        <gcds-details details-title="Chart Data" open>
+          <div class="table-wrap">
+            <table id="weakTable" class="display compact" style="min-width: 720px;">
+              <thead>
+                <tr>
+                  <th>owner_org</th>
+                  <th>c</th>
+                  <th>1</th>
+                  <th>0</th>
+                  <th>NA</th>
+                  <th>na</th>
+                  <th>-</th>
+                  <th>REDACTED</th>
+                  <th>[REDACTED]</th>
+                  <th>TBD-PM-00</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </gcds-details>
+      </section>
 
-          callback({
-            draw: data.draw,
-            recordsTotal,
-            recordsFiltered: recordsTotal,
-            data: dataRows
-          });
-        },
-        columns: [
-          { title: "Org", data: 0 },
-          { title: "Tracking #", data: 1, render: (d,t,row)=>
-            `<a href="https://search.open.canada.ca/briefing_titles/record/${row[0]},${d}" target="_blank">${d}</a>` },
-          { title: "Request #", data: 2, render: (d,t,row)=>
-            `<a href="https://open.canada.ca/data/en/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2?filters=owner_org%3A${row[0]}%7Crequest_number%3A${d}" target="_blank">${d}</a>` },
-          { title: "Informal Requests", data: 3, className:'dt-right', render:(d)=>Number(d||0).toLocaleString() },
-          { title: "UIDs", data: 4 },
-          { title: "Summary EN", data: 5, visible:false },
-          { title: "Summary FR", data: 6, visible:false }
-        ]
-      });
+      <section id="section-3">
+        <gcds-heading tag="h2">Section 3</gcds-heading>
+        <gcds-text>Additional content.</gcds-text>
+      </section>
 
-      // Expand details to show summaries
-      $('#report tbody').on('click', 'tr', function () {
-        const row = table.row(this);
-        if (row.child.isShown()) {
-          row.child.hide(); $(this).removeClass('shown');
-        } else {
-          const d = row.data();
-          row.child(`<div><strong>EN:</strong> ${d[5]}<br><strong>FR:</strong> ${d[6]}</div>`).show();
-          $(this).addClass('shown');
-        }
-      });
+      <gcds-date-modified>{{ build_date }}</gcds-date-modified>
+    </gcds-container>
 
-      // Weak table
-      const weakRows = await q(`SELECT owner_org, tracking_number, COUNT(*) as n
-                                FROM weak_matches GROUP BY owner_org, tracking_number`);
-      let html = "<table border='1'><tr><th>Org</th><th>Tracking #</th><th>Count</th></tr>";
-      weakRows.forEach(r=>{
-        html += `<tr><td>${r.owner_org}</td><td>${r.tracking_number}</td><td>${r.n}</td></tr>`;
-      });
-      html += "</table>";
-      document.getElementById("weak-table").innerHTML = html;
-    })();
-  </script>
-</body>
+    <gcds-footer display="full" contextual-heading="Canadian Digital Service"
+      contextual-links='{ "Why GC Notify": "#","Features": "#", "Activity on GC Notify": "#"}'>
+    </gcds-footer>
+
+    <!--REPORT_SCRIPT-->
+  </body>
 </html>
