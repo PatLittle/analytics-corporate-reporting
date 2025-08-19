@@ -1,209 +1,182 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>BN ATI Report</title>
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css" />
-  <style>
-    body { font-family: sans-serif; margin: 2rem; }
-    table.dataTable { width: 100% !important; }
-    .dt-right { text-align: right; }
-  </style>
-</head>
-<body>
-  <h1>Briefing Note ATI Report</h1>
+<html dir="ltr" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="BN ATI Report" />
+    <title>BN ATI Report</title>
 
-  <p>Generated on: <gcds-date-modified>2025-08-19</gcds-date-modified></p>
+    <!-- GC Design System -->
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-utility@1.9.2/dist/gcds-utility.min.css" />
+    <link rel="stylesheet" href="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.css" />
+    <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
 
-  <h2>Section 1: Strong Matches</h2>
-  <table id="report" class="display nowrap"></table>
+    <style>
+      gcds-container[main-container] section { margin-left: auto; margin-right: auto; }
+      .table-wrap { margin-block: 1.5rem; overflow-x: auto; }
+      table { width: 100%; }
+      table.dataTable tr.shown td { background: #f9fbff; }
+      .dt-details { padding: .75rem 1rem; line-height: 1.35; }
+      .dt-details h4 { margin: .2rem 0 .4rem; font-size: 1rem; }
+      .dt-details p { margin: .25rem 0; }
 
-  <h2>Section 2: Weak Matches</h2>
-  <div id="weak-table"></div>
+      /* Section 2: chart sizing and font bump */
+      .chart-wrap { width: 71.25rem; margin: 0 auto; font-size: 1.1rem; }
+      #weakChart { width: 100%; height: 520px; }
+    </style>
+  </head>
 
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-  <script type="module">
-    import { createDbWorker } from "https://unpkg.com/sql.js-httpvfs/dist/sqlite.worker.js";
+  <body>
+    <gcds-header lang-href="#" skip-to-href="#main-content">
+      <gcds-search slot="search"></gcds-search>
+      <gcds-breadcrumbs slot="breadcrumb">
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+        <gcds-breadcrumbs-item href="#">Link</gcds-breadcrumbs-item>
+      </gcds-breadcrumbs>
+    </gcds-header>
 
-    (async () => {
-      const worker = await createDbWorker(
-        [{
-          from: "inline",
-          config: {
-            serverMode: "full",
-            requestChunkSize: 4096,
-            url: "./data.sqlite"
-          }
-        }],
-        "https://unpkg.com/sql.js-httpvfs/dist/sqlite.worker.sql-wasm.js"
-      );
+    <gcds-container id="main-content" main-container size="xl" centered tag="main">
+      <section>
+        <gcds-heading tag="h1">BN × ATI Report</gcds-heading>
+        <gcds-text>
+          This report cross-references BN tracking numbers in ATI summaries, and aggregates informal request counts.
+          Click a row to view full details.
+        </gcds-text>
+      </section>
 
-      async function q(sql, params=[]) {
-        return await worker.db.query(sql, params);
-      }
+      <!-- Section 1: Stats + main paged table (SQLite-backed) -->
+      <section id="section-1">
+        <gcds-heading tag="h2">Section 1</gcds-heading>
+        <gcds-text id="bn-ati-stats"></gcds-text>
 
-      // DataTable
-      const table = $('#report').DataTable({
-        serverSide: true,
-        processing: true,
-        searching: false,
-        scrollX: true,
-        lengthMenu: [[10,25,50,100],[10,25,50,100]],
-        ajax: async (data, callback) => {
-          const start = data.start || 0;
-          const length = data.length || 25;
-          const colMap = ["owner_org","tracking_number","request_number","informal_requests_sum","unique_identifiers"];
-          const orderCol = colMap[(data.order?.[0]?.column ?? 0)] || "owner_org";
-          const orderDir = (data.order?.[0]?.dir ?? "asc").toUpperCase() === "DESC" ? "DESC" : "ASC";
+        <div class="table-wrap">
+          <gcds-heading tag="h3">BN ATI report</gcds-heading>
+          <table id="report" class="display nowrap"></table>
+        </div>
+      </section>
 
-          const totalRes = await q("SELECT COUNT(*) AS c FROM strong_matches");
-          const recordsTotal = totalRes[0]?.c || 0;
+      <!-- Section 2: Stacked bar chart + details table -->
+      <section id="section-2" style="text-align:center;">
+        <gcds-heading tag="h2">Section 2</gcds-heading>
+        <gcds-text>
+          Weak BN ID distribution by owner_org (stacked). Expand to view raw counts.
+        </gcds-text>
 
-          const rows = await q(
-            `SELECT owner_org, tracking_number, request_number, informal_requests_sum, unique_identifiers, summary_en, summary_fr
-             FROM strong_matches
-             ORDER BY ${orderCol} ${orderDir}
-             LIMIT ? OFFSET ?`,
-            [length, start]
-          );
+        <div class="chart-wrap">
+          <canvas id="weakChart" aria-label="Weak BN ID counts per owner_org"></canvas>
+        </div>
 
-          const dataRows = rows.map(r => [
-            r.owner_org,
-            r.tracking_number,
-            r.request_number,
-            r.informal_requests_sum || 0,
-            r.unique_identifiers || "",
-            r.summary_en || "",
-            r.summary_fr || ""
-          ]);
+        <gcds-details details-title="Chart Data" open>
+          <div class="table-wrap">
+            <table id="weakTable" class="display compact" style="min-width: 720px;">
+              <thead>
+                <tr>
+                  <th>owner_org</th>
+                  <th>c</th>
+                  <th>1</th>
+                  <th>0</th>
+                  <th>NA</th>
+                  <th>na</th>
+                  <th>-</th>
+                  <th>REDACTED</th>
+                  <th>[REDACTED]</th>
+                  <th>TBD-PM-00</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </gcds-details>
+      </section>
 
-          callback({
-            draw: data.draw,
-            recordsTotal,
-            recordsFiltered: recordsTotal,
-            data: dataRows
-          });
-        },
-        columns: [
-          { title: "Org", data: 0 },
-          { title: "Tracking #", data: 1, render: (d,t,row)=>
-            `<a href="https://search.open.canada.ca/briefing_titles/record/${row[0]},${d}" target="_blank">${d}</a>` },
-          { title: "Request #", data: 2, render: (d,t,row)=>
-            `<a href="https://open.canada.ca/data/en/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2?filters=owner_org%3A${row[0]}%7Crequest_number%3A${d}" target="_blank">${d}</a>` },
-          { title: "Informal Requests", data: 3, className:'dt-right', render:(d)=>Number(d||0).toLocaleString() },
-          { title: "UIDs", data: 4 },
-          { title: "Summary EN", data: 5, visible:false },
-          { title: "Summary FR", data: 6, visible:false }
-        ]
-      });
+      <section id="section-3">
+        <gcds-heading tag="h2">Section 3</gcds-heading>
+        <gcds-text>Additional content.</gcds-text>
+      </section>
 
-      // Expand details to show summaries
-      $('#report tbody').on('click', 'tr', function () {
-        const row = table.row(this);
-        if (row.child.isShown()) {
-          row.child.hide(); $(this).removeClass('shown');
-        } else {
-          const d = row.data();
-          row.child(`<div><strong>EN:</strong> ${d[5]}<br><strong>FR:</strong> ${d[6]}</div>`).show();
-          $(this).addClass('shown');
-        }
-      });
+      <gcds-date-modified>2025-08-19</gcds-date-modified>
+    </gcds-container>
 
-      // Weak table
-      const weakRows = await q(`SELECT owner_org, tracking_number, COUNT(*) as n
-                                FROM weak_matches GROUP BY owner_org, tracking_number`);
-      let html = "<table border='1'><tr><th>Org</th><th>Tracking #</th><th>Count</th></tr>";
-      weakRows.forEach(r=>{
-        html += `<tr><td>${r.owner_org}</td><td>${r.tracking_number}</td><td>${r.n}</td></tr>`;
-      });
-      html += "</table>";
-      document.getElementById("weak-table").innerHTML = html;
-    })();
-  </script>
+    <gcds-footer display="full" contextual-heading="Canadian Digital Service"
+      contextual-links='{ "Why GC Notify": "#","Features": "#", "Activity on GC Notify": "#"}'>
+    </gcds-footer>
 
-<script>
-(function(){
-  // ---------- tiny helpers for dynamic assets ----------
+    
+<script type="module">
+import { createDbWorker } from "https://unpkg.com/sql.js-httpvfs/dist/sqlite.worker.js";
+
+(async () => {
+  // ---------- helpers to load libs ----------
   function addCSS(href){
-    return new Promise(function(resolve,reject){
+    return new Promise((resolve,reject)=>{
       if ([...document.styleSheets].some(s => s.href && s.href.includes(href))) return resolve();
       const l=document.createElement('link'); l.rel='stylesheet'; l.href=href;
       l.onload=resolve; l.onerror=reject; document.head.appendChild(l);
     });
   }
   function addScript(src){
-    return new Promise(function(resolve,reject){
+    return new Promise((resolve,reject)=>{
       if ([...document.scripts].some(s => s.src && s.src.includes(src))) return resolve();
       const s=document.createElement('script'); s.src=src; s.defer=true;
       s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
     });
   }
 
-  // ---------- ensure DataTables v2 + SearchBuilder 1.8.3 + Chart.js 4 ----------
-  async function ensureLibs(){
-    if (!window.jQuery) await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
+  // DataTables 2 + Chart.js
+  await addCSS("https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css");
+  await addScript("https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js");
+  await addScript("https://cdn.datatables.net/2.0.8/js/dataTables.min.js");
+  await addScript("https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js");
 
-    // DataTables v2 core
-    await addCSS("https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css");
-    await addScript("https://cdn.datatables.net/2.0.8/js/dataTables.min.js");
+  // ---------- SQLite worker (HTTP range streaming) ----------
+  const worker = await createDbWorker(
+    [{
+      from: "inline",
+      config: {
+        serverMode: "full",
+        requestChunkSize: 4096,
+        url: "./data.sqlite"
+      }
+    }],
+    "https://unpkg.com/sql.js-httpvfs/dist/sqlite.worker.sql-wasm.js"
+  );
 
-    // SearchBuilder
-    await addCSS("https://cdn.datatables.net/searchbuilder/1.8.3/css/searchBuilder.dataTables.min.css");
-    await addScript("https://cdn.datatables.net/searchbuilder/1.8.3/js/dataTables.searchBuilder.min.js");
-
-    // Chart.js v4
-    if (!window.Chart) await addScript("https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js");
+  async function q(sql, params = []) {
+    return await worker.db.query(sql, params); // returns array of row objects
   }
 
-  // ---------- utilities ----------
-  function escapeHtml(s){
-    return String(s ?? '').replace(/[&<>"']/g, m => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[m]));
-  }
+  // ---------- link renderers ----------
+  function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
   function linkOwnerOrg(val){
-    const raw = String(val || '');
-    const slug = encodeURIComponent(raw.toLowerCase());
+    const raw = String(val || ''); const slug = encodeURIComponent(raw.toLowerCase());
     const url = `https://search.open.canada.ca/briefing_titles/?owner_org=${slug}`;
     return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(raw)}</a>`;
   }
   function linkUIDs(val){
-    const raw = String(val || '');
-    if (!raw.trim()) return '';
-    const parts = raw.split(';').map(s => s.trim()).filter(Boolean);
+    const raw = String(val || ''); if (!raw.trim()) return '';
+    const parts = raw.split(';').map(s=>s.trim()).filter(Boolean);
     const base = "https://open.canada.ca/en/search/ati/reference/";
     return parts.map(id => `<a href="${base}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a>`).join("<br>");
   }
-
-  // tracking_number record link: https://search.open.canada.ca/briefing_titles/record/{owner_org},{tracking_number}
   function linkTrackingNumber(owner_org, tracking_number){
-    const org = String(owner_org || '');
-    const tn  = String(tracking_number || '');
+    const org = String(owner_org || ''), tn = String(tracking_number || '');
     if (!org || !tn) return escapeHtml(tn);
     const url = `https://search.open.canada.ca/briefing_titles/record/${encodeURIComponent(org)},${encodeURIComponent(tn)}`;
     return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(tn)}</a>`;
   }
-
-  // request_number link to C dataset with encoded filters
   function linkRequestNumber(owner_org, request_number){
-    const org = String(owner_org || '');
-    const rn  = String(request_number || '');
+    const org = String(owner_org || ''), rn = String(request_number || '');
     if (!org || !rn) return escapeHtml(rn);
     const filterVal = `owner_org:${org}|request_number:${rn}`;
     const url = "https://open.canada.ca/data/en/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2?filters=" + encodeURIComponent(filterVal);
     return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(rn)}</a>`;
   }
-
   function buildDetails(row){
     // row = [owner_org, tracking_number, request_number, sum, unique_ids, summary_en, summary_fr]
-    const owner = row[0] ?? '';
-    const tn = row[1] ?? '';
-    const rn = row[2] ?? '';
-    const sum = Number(row[3] || 0);
-    const uids = row[4] ?? '';
-    const s_en = row[5] ?? '';
-    const s_fr = row[6] ?? '';
+    const owner = row[0] ?? '', tn = row[1] ?? '', rn = row[2] ?? '';
+    const sum = Number(row[3] || 0), uids = row[4] ?? '';
+    const s_en = row[5] ?? '', s_fr = row[6] ?? '';
     return `
       <div class="dt-details">
         <h4>Full details</h4>
@@ -217,30 +190,19 @@
       </div>`;
   }
 
-  function toRows(json){
-    return (json?.rows || []).map(r => ([
-      r.owner_org || '',
-      r.tracking_number || '',
-      r.c_request_number || '',
-      (r.informal_requests_sum || 0),
-      r.unique_identifiers || '',
-      r.summary_en || '',
-      r.summary_fr || ''
-    ]));
-  }
+  // ---------- Stats (from meta_counts) ----------
+  async function updateStats(){
+    const rows = await q("SELECT key, value FROM meta_counts");
+    const kv = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    const statsEl = document.getElementById('bn-ati-stats'); if (!statsEl) return;
 
-  // stats with dataset links
-  function updateStats(data){
-    const statsEl = document.getElementById('bn-ati-stats');
-    if (!statsEl) return;
-
-    const A = Number(data.meta?.counts?.A_rows||0).toLocaleString();
-    const B = Number(data.meta?.counts?.B_rows||0).toLocaleString();
-    const C = Number(data.meta?.counts?.C_rows||0).toLocaleString();
-    const BC = Number(data.meta?.counts?.BC_rows||0).toLocaleString();
-    const matches = Number(data.meta?.counts?.matches||0).toLocaleString();
-    const strong = Number(data.meta?.counts?.strong_matches||0).toLocaleString();
-    const weak = Number(data.meta?.counts?.weak_matches||0).toLocaleString();
+    const A = Number(kv.A_rows||0).toLocaleString();
+    const B = Number(kv.B_rows||0).toLocaleString();
+    const C = Number(kv.C_rows||0).toLocaleString();
+    const BC = Number(kv.BC_rows||0).toLocaleString();
+    const matches = Number(kv.matches||0).toLocaleString();
+    const strong = Number(kv.strong_matches||0).toLocaleString();
+    const weak = Number(kv.weak_matches||0).toLocaleString();
 
     const linkA = `<a href="https://open.canada.ca/data/en/dataset/ee9bd7e8-90a5-45db-9287-85c8cf3589b6/resource/299a2e26-5103-4a49-ac3a-53db9fcc06c7" target="_blank" rel="noopener">Proactive Disclosure - Briefing Note Titles and Numbers</a>`;
     const linkB = `<a href="https://open.canada.ca/data/en/dataset/2916fad5-ebcc-4c86-b0f3-4f619b29f412/resource/e664cf3d-6cb7-4aaa-adfa-e459c2552e3e" target="_blank" rel="noopener">Analytics - ATI informal requests per summary</a>`;
@@ -259,159 +221,139 @@
       </div>`;
   }
 
-  // ---------- weak-id aggregation for Section 2 ----------
-  const WEAK_VALUES = ["c","1","0","NA","na","-","REDACTED","[REDACTED]","TBD-PM-00"];
+  // ---------- DataTables server-side (SQLite paged) ----------
+  await updateStats();
 
-  function aggWeakCounts(weakJson){
-    const counts = new Map(); // owner_org -> {weakVal:count}
-    for (const r of (weakJson?.rows || [])){
-      const org = (r.owner_org || "").trim();
-      const tn  = (r.tracking_number || "").trim();
-      if (!org || !tn) continue;
-      const weakKey = WEAK_VALUES.includes(tn) ? tn : null;
-      if (!weakKey) continue;
-      if (!counts.has(org)) counts.set(org, Object.fromEntries(WEAK_VALUES.map(v => [v, 0])));
-      counts.get(org)[weakKey] += 1;
-    }
-    const owners = Array.from(counts.keys()).sort();
-    const perWeak = {};
-    for (const w of WEAK_VALUES) perWeak[w] = owners.map(o => counts.get(o)[w] || 0);
-    const totals = owners.map(o => WEAK_VALUES.reduce((sum,w) => sum + (counts.get(o)[w]||0), 0));
-    return { owners, perWeak, totals };
-  }
+  const table = jQuery('#report').DataTable({
+    serverSide: true,
+    processing: true,
+    searching: false,  // SearchBuilder is client-only; disable to keep RAM low
+    scrollX: true,
+    lengthMenu: [[10,25,50,100],[10,25,50,100]],
+    ajax: async (data, callback) => {
+      const start = data.start || 0;
+      const length = data.length || 25;
+      const colMap = ["owner_org","tracking_number","request_number","informal_requests_sum","unique_identifiers"];
+      const orderCol = colMap[(data.order?.[0]?.column ?? 0)] || "owner_org";
+      const orderDir = (data.order?.[0]?.dir ?? "asc").toUpperCase() === "DESC" ? "DESC" : "ASC";
 
-  function renderWeakTable(agg){
-    const tbody = document.querySelector("#weakTable tbody");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-    for (let i=0;i<agg.owners.length;i++){
-      const org = agg.owners[i];
-      const row = document.createElement("tr");
-      const cells = [
-        org,
-        ...WEAK_VALUES.map(w => String(agg.perWeak[w][i])),
-        String(agg.totals[i])
-      ];
-      for (const c of cells){
-        const td = document.createElement("td");
-        td.textContent = c;
-        row.appendChild(td);
-      }
-      tbody.appendChild(row);
-    }
-  }
+      const total = await q("SELECT COUNT(*) AS c FROM strong_matches");
+      const recordsTotal = total[0]?.c || 0;
+
+      const rows = await q(
+        `SELECT owner_org, tracking_number, request_number, informal_requests_sum, unique_identifiers, summary_en, summary_fr
+         FROM strong_matches
+         ORDER BY ${orderCol} ${orderDir}
+         LIMIT ? OFFSET ?`, [length, start]
+      );
+
+      const dataRows = rows.map(r => [
+        r.owner_org,
+        r.tracking_number,
+        r.request_number,
+        r.informal_requests_sum || 0,
+        r.unique_identifiers || "",
+        r.summary_en || "",
+        r.summary_fr || ""
+      ]);
+
+      callback({
+        draw: data.draw,
+        recordsTotal,
+        recordsFiltered: recordsTotal,
+        data: dataRows
+      });
+    },
+    columns: [
+      { title: "owner_org", data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
+      { title: "tracking_number", data: 1, render: (d,t,row)=> t==='display' ? linkTrackingNumber(row[0], d) : (d ?? '') },
+      { title: "request_number", data: 2, render: (d,t,row)=> t==='display' ? linkRequestNumber(row[0], d) : (d ?? '') },
+      { title: "Informal Requests (sum)", data: 3, className: 'dt-right', render:(d,t)=>{ const n = Number(d||0); return t==='display'? n.toLocaleString(): n; } },
+      { title: "Unique Identifier(s)", data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
+      { title: "summary_en", data: 5, visible:false },
+      { title: "summary_fr", data: 6, visible:false }
+    ]
+  });
+
+  // Row expand for details (summaries etc)
+  jQuery('#report tbody').on('click', 'tr', function(){
+    const row = table.row(this);
+    if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
+    else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
+  });
+
+  // ---------- Section 2: Weak chart + table ----------
+  const weak = await q(`
+    SELECT owner_org,
+      SUM(CASE WHEN tracking_number='c' THEN 1 ELSE 0 END) as c,
+      SUM(CASE WHEN tracking_number='1' THEN 1 ELSE 0 END) as one_,
+      SUM(CASE WHEN tracking_number='0' THEN 1 ELSE 0 END) as zero_,
+      SUM(CASE WHEN tracking_number='NA' THEN 1 ELSE 0 END) as NA_,
+      SUM(CASE WHEN tracking_number='na' THEN 1 ELSE 0 END) as na_,
+      SUM(CASE WHEN tracking_number='-' THEN 1 ELSE 0 END) as dash_,
+      SUM(CASE WHEN tracking_number='REDACTED' THEN 1 ELSE 0 END) as red_,
+      SUM(CASE WHEN tracking_number='[REDACTED]' THEN 1 ELSE 0 END) as bred_,
+      SUM(CASE WHEN tracking_number='TBD-PM-00' THEN 1 ELSE 0 END) as tbd_
+    FROM weak_matches
+    GROUP BY owner_org
+    ORDER BY owner_org
+  `);
+
+  const owners = weak.map(r => r.owner_org);
+  const series = {
+    "c": weak.map(r => r.c),
+    "1": weak.map(r => r.one_),
+    "0": weak.map(r => r.zero_),
+    "NA": weak.map(r => r.NA_),
+    "na": weak.map(r => r.na_),
+    "-": weak.map(r => r.dash_),
+    "REDACTED": weak.map(r => r.red_),
+    "[REDACTED]": weak.map(r => r.bred_),
+    "TBD-PM-00": weak.map(r => r.tbd_)
+  };
 
   function colorPalette(n){
     const base = ["#8ecae6","#219ebc","#023047","#ffb703","#fb8500",
                   "#90be6d","#277da1","#577590","#f94144","#f3722c"];
-    if (n <= base.length) return base.slice(0,n);
-    const arr = [];
-    while (arr.length < n) arr.push(...base);
-    return arr.slice(0,n);
+    if (n<=base.length) return base.slice(0,n);
+    const arr=[]; while(arr.length<n) arr.push(...base); return arr.slice(0,n);
   }
+  const keys = Object.keys(series);
+  const colors = colorPalette(keys.length);
+  const datasets = keys.map((k,i)=>({ label:k, data:series[k], backgroundColor:colors[i], stack:"weak" }));
 
-  function renderWeakChart(agg){
-    const ctx = document.getElementById("weakChart");
-    if (!ctx || !window.Chart) return;
-    const colors = colorPalette(WEAK_VALUES.length);
-    const datasets = WEAK_VALUES.map((w, idx) => ({
-      label: w,
-      data: agg.perWeak[w],
-      backgroundColor: colors[idx],
-      stack: "weak"
-    }));
-    new Chart(ctx, {
-      type: "bar",
-      data: { labels: agg.owners, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: { stacked: true, ticks: { autoSkip: true, maxRotation: 45, minRotation: 0 } },
-          y: { stacked: true, beginAtZero: true }
-        },
-        plugins: {
-          legend: { position: "top", labels: { font: { size: 16 } } },
-          title: { display: true, text: "Weak BN IDs per Owner Org", font: { size: 20 } },
-          tooltip: { mode: "index", intersect: false }
-        }
-      }
-    });
-  }
+  new Chart(document.getElementById("weakChart"), {
+    type: "bar",
+    data: { labels: owners, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { stacked:true, ticks:{ autoSkip:true, maxRotation:45 } }, y: { stacked:true, beginAtZero:true } },
+      plugins: { legend:{ position:"top", labels:{ font:{ size:16 } } }, title:{ display:true, text:"Weak BN IDs per Owner Org", font:{ size:20 } } }
+    }
+  });
 
-  // Only Records Informally Requested preset (Section 1)
-  const PRESET_INFORMAL = {
-    criteria: [{ data: 'Informal Requests (sum)', condition: '>=', value: [1] }],
-    logic: 'AND'
-  };
-
-  async function main(){
-    await ensureLibs();
-
-    // ---- Load strong matches report.json directly
-    const reportRes = await fetch('./report.json', { cache: 'no-store' });
-    const data = await reportRes.json();
-
-    updateStats(data);
-
-    const rows = toRows(data);
-    const tableEl = document.getElementById('report');
-
-    const dt = jQuery(tableEl).DataTable({
-      data: rows,
-      deferRender: true,
-      autoWidth: false,
-      scrollX: true,
-      pageLength: 25,
-      lengthMenu: [[10,25,50,100,-1],[10,25,50,100,"All"]],
-      order: [[0, "asc"]],
-      dom: 'Qlfrtip',
-      searchBuilder: { columns: [0,1,2,3,4,5,6] },
-      columns: [
-        // owner_org → hyperlink on display, raw for search/sort
-        { data: 0, render: (d,t)=> t==='display' ? linkOwnerOrg(d) : (d ?? '') },
-        // tracking_number → record link using owner_org + tracking_number
-        { data: 1, render: function(d, type, row){ return type==='display' ? linkTrackingNumber(row[0], d) : (d ?? ''); } },
-        // request_number → filters link with owner_org + request_number
-        { data: 2, render: function(d, type, row){ return type==='display' ? linkRequestNumber(row[0], d) : (d ?? ''); } },
-        // numeric sum
-        { data: 3, className:'dt-right', render:(d,t)=>{const n=Number(d||0); return t==='display'? n.toLocaleString(): n;} },
-        // Unique Identifier(s) → links on display
-        { data: 4, render:(d,t)=> t==='display' ? linkUIDs(d) : (d ?? '') },
-        // summary_en (hidden)
-        { data: 5, visible: false },
-        // summary_fr (hidden)
-        { data: 6, visible: false }
-      ]
-    });
-
-    // Row expansion toggle: show hidden summaries + details
-    jQuery('#report tbody').on('click', 'tr', function(){
-      const row = dt.row(this);
-      if (row.child.isShown()) { row.child.hide(); jQuery(this).removeClass('shown'); }
-      else { row.child(buildDetails(row.data())).show(); jQuery(this).addClass('shown'); }
-    });
-
-    // Preset buttons (Section 1)
-    const btnInformal = document.getElementById('preset-informal');
-    const btnClear = document.getElementById('preset-clear');
-    if (btnInformal) btnInformal.addEventListener('click', () => dt.searchBuilder.rebuild(PRESET_INFORMAL));
-    if (btnClear) btnClear.addEventListener('click', () => dt.searchBuilder.rebuild());
-
-    // ---- Load weak matches weak_bn_id.json directly (for Section 2)
-    try{
-      const weakRes = await fetch('./weak_bn_id.json', { cache: 'no-store' });
-      const weakData = await weakRes.json();
-      const agg = aggWeakCounts(weakData);
-      renderWeakChart(agg);
-      renderWeakTable(agg);
-    }catch(e){
-      console.warn("Failed to load weak_bn_id.json", e);
+  // Build the table under details
+  const tbody = document.querySelector("#weakTable tbody");
+  if (tbody){
+    for (let i=0; i<owners.length; i++){
+      const tr = document.createElement("tr");
+      const total =
+        (series["c"][i]||0) + (series["1"][i]||0) + (series["0"][i]||0) +
+        (series["NA"][i]||0) + (series["na"][i]||0) + (series["-"][i]||0) +
+        (series["REDACTED"][i]||0) + (series["[REDACTED]"][i]||0) + (series["TBD-PM-00"][i]||0);
+      const cells = [
+        owners[i],
+        series["c"][i]||0, series["1"][i]||0, series["0"][i]||0,
+        series["NA"][i]||0, series["na"][i]||0, series["-"][i]||0,
+        series["REDACTED"][i]||0, series["[REDACTED]"][i]||0, series["TBD-PM-00"][i]||0,
+        total
+      ];
+      for (const c of cells){ const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
+      tbody.appendChild(tr);
     }
   }
-
-  main().catch(console.error);
 })();
 </script>
-</body>
+
+  </body>
 </html>
