@@ -1,71 +1,32 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>BN + ATI Reporting Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- GC Design System -->
-  <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
-  <script nomodule src="https://cdn.design-system.alpha.canada.ca/gcds/gcds.js"></script>
-  <style>
-    body { font-family: sans-serif; margin: 1rem; }
-    .dataTables_wrapper { margin-top: 1rem; }
-    .details-control { cursor: pointer; }
-    td.details-control::before {
-      content: '➕';
-      font-size: 14px;
-      margin-right: 6px;
-    }
-    tr.shown td.details-control::before {
-      content: '➖';
-    }
-    #weakChart { width: 71.25rem; height: 30rem; margin-top: 2rem; }
-  </style>
-</head>
-<body>
-  <gcds-header heading="BN + ATI Reporting Dashboard" lang="en"></gcds-header>
+#!/usr/bin/env python3
+from __future__ import annotations
 
-  <main>
-    <section>
-      <div id="bn-ati-stats"></div>
-      <table id="report" class="display nowrap" style="width:100%">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Owner Org</th>
-            <th>Tracking Number</th>
-            <th>Request Number</th>
-            <th>Informal Requests</th>
-            <th>Open URL</th>
-            <th>✓</th>
-            <th>UIDs</th>
-          </tr>
-        </thead>
-      </table>
-    </section>
+from pathlib import Path
+from datetime import date
 
-    <section>
-      <h2>Section 2: Weak ID Summary</h2>
-      <canvas id="weakChart"></canvas>
-      <gcds-details details-title="Chart Data" open>
-        <table id="weakTable" border="1" cellspacing="0" cellpadding="4">
-          <thead>
-            <tr>
-              <th>Owner Org</th><th>c</th><th>1</th><th>0</th><th>NA</th>
-              <th>na</th><th>-</th><th>REDACTED</th><th>[REDACTED]</th>
-              <th>TBD-PM-00</th><th>Total</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </gcds-details>
-    </section>
-  </main>
+ROOT = Path(__file__).resolve().parents[1]
+OUT_DIR = ROOT / "docs"
+OUT_HTML = OUT_DIR / "index.html"
+TEMPLATE_FILE = ROOT / "templates/index.html"
+OUT_SQLITE = OUT_DIR / "data.sqlite"
 
-  <gcds-date-modified id="date-modified">Date modified:</gcds-date-modified>
 
-  <gcds-footer lang="en"></gcds-footer>
-  
+def inject_script_into_html(html: str, script_tag: str) -> str:
+    marker = "<!--REPORT_SCRIPT-->"
+    if marker in html:
+        return html.replace(marker, script_tag)
+    lower = html.lower()
+    idx = lower.rfind("</body>")
+    if idx != -1:
+        return html[:idx] + script_tag + html[idx:]
+    return html + script_tag
+
+
+def main() -> None:
+    if not OUT_SQLITE.exists():
+        raise FileNotFoundError(f"Missing {OUT_SQLITE}; run build_db.py first.")
+    template_html = TEMPLATE_FILE.read_text(encoding="utf-8")
+    loader_js = r"""
 <script type=\"module\">
 import { createDbWorker } from \"https://unpkg.com/sql.js-httpvfs/dist/index.js\";
 
@@ -300,6 +261,12 @@ import { createDbWorker } from \"https://unpkg.com/sql.js-httpvfs/dist/index.js\
   }
 })();
 </script>
+"""
+    final_html = inject_script_into_html(template_html, loader_js)
+    final_html = final_html.replace("{{ build_date }}", date.today().isoformat())
+    OUT_HTML.write_text(final_html, encoding="utf-8")
+    print(f"🧾 Wrote {OUT_HTML}")
 
-</body>
-</html>
+
+if __name__ == "__main__":
+    main()
