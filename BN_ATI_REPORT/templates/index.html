@@ -7,8 +7,6 @@
   <!-- GC Design System -->
   <script type="module" src="https://cdn.design-system.alpha.canada.ca/@cdssnc/gcds-components@0.40.0/dist/gcds/gcds.esm.js"></script>
   <script nomodule src="https://cdn.design-system.alpha.canada.ca/gcds/gcds.js"></script>
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-  <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
   <style>
     body { font-family: sans-serif; margin: 1rem; }
     .dataTables_wrapper { margin-top: 1rem; }
@@ -29,8 +27,8 @@
 
   <main>
     <section>
-      <div id="stats"></div>
-      <table id="mainTable" class="display nowrap" style="width:100%">
+      <div id="bn-ati-stats"></div>
+      <table id="report" class="display nowrap" style="width:100%">
         <thead>
           <tr>
             <th></th>
@@ -64,148 +62,9 @@
     </section>
   </main>
 
-  <gcds-date-modified id="date-modified"></gcds-date-modified>
+  <gcds-date-modified id="date-modified">Date modified:</gcds-date-modified>
 
   <gcds-footer lang="en"></gcds-footer>
-
-  <!-- JS libraries -->
-  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script type="module">
-    import initSqlJs from "https://sql.js.org/dist/sql-wasm.js";
-
-    // Escape HTML
-    function escapeHtml(text){
-      return text ? text.replace(/[&<>"']/g, m => (
-        { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m]
-      )) : '';
-    }
-
-    function linkTrackingNumber(owner, tn){
-      if(!owner || !tn) return '';
-      return `<a href="https://search.open.canada.ca/briefing_titles/record/${owner},${tn}" target="_blank">${escapeHtml(tn)}</a>`;
-    }
-    function linkRequestNumber(owner, rn){
-      if(!owner || !rn) return '';
-      return `<a href="https://open.canada.ca/data/en/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2?filters=owner_org%3A${owner}%7Crequest_number%3A${rn}" target="_blank">${escapeHtml(rn)}</a>`;
-    }
-    function linkUIDs(uids){
-      if(!uids) return '';
-      return escapeHtml(uids).split(',').map(u=>`<code>${u.trim()}</code>`).join(' ');
-    }
-
-    // Load SQLite DB
-    async function loadDb() {
-      const SQL = await initSqlJs({ locateFile: f => `https://sql.js.org/dist/${f}` });
-      const resp = await fetch("report.sqlite");
-      const buf = await resp.arrayBuffer();
-      return new SQL.Database(new Uint8Array(buf));
-    }
-
-    function queryAll(db, sql){
-      const stmt = db.prepare(sql);
-      const rows = [];
-      while (stmt.step()) rows.push(stmt.getAsObject());
-      stmt.free();
-      return rows;
-    }
-
-    (async () => {
-      const db = await loadDb();
-      document.getElementById("date-modified").setAttribute("date", new Date().toISOString().slice(0,10));
-
-      // Stats
-      const stats = queryAll(db, `SELECT 
-        (SELECT COUNT(*) FROM strong_matches) AS strong,
-        (SELECT COUNT(*) FROM weak_matches) AS weak`);
-      const strong = stats[0].strong, weak = stats[0].weak;
-      document.getElementById("stats").innerHTML =
-        `<strong>Summary</strong><br>
-        Proactive Disclosure - Briefing Note Titles and Numbers: <a href="https://open.canada.ca/data/en/dataset/ee9bd7e8-90a5-45db-9287-85c8cf3589b6/resource/299a2e26-5103-4a49-ac3a-53db9fcc06c7">link</a><br>
-        Analytics - ATI informal requests per summary: <a href="https://open.canada.ca/data/en/dataset/2916fad5-ebcc-4c86-b0f3-4f619b29f412/resource/e664cf3d-6cb7-4aaa-adfa-e459c2552e3e">link</a><br>
-        Completed Access to Information Request Summaries dataset: <a href="https://open.canada.ca/data/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2">link</a><br>
-        Strong Matches: ${strong}<br>
-        Weak Matches: ${weak}`;
-
-      // DataTable
-      const data = queryAll(db, `SELECT owner_org,tracking_number,request_number,
-        informal_requests,open_by_default_url,open_flag,uids,summary_en,summary_fr
-        FROM strong_matches`);
-      const table = $('#mainTable').DataTable({
-        data,
-        columns: [
-          { data: null, className: 'details-control', orderable: false, defaultContent: '' },
-          { data: 'owner_org' },
-          { data: 'tracking_number', render:(d,t,r)=>linkTrackingNumber(r.owner_org,d) },
-          { data: 'request_number', render:(d,t,r)=>linkRequestNumber(r.owner_org,d) },
-          { data: 'informal_requests' },
-          { data: 'open_by_default_url', render: d=> d? `<a href="${d}" target="_blank">URL</a>`:'' },
-          { data: 'open_flag', render: d=> d? '<span style="color:#137333;font-weight:700;">✓</span>':'' },
-          { data: 'uids', render: linkUIDs }
-        ],
-        responsive: true,
-        pageLength: 25
-      });
-
-      $('#mainTable tbody').on('click','td.details-control', function(){
-        const tr = $(this).closest('tr');
-        const row = table.row(tr);
-        if(row.child.isShown()){ row.child.hide(); tr.removeClass('shown'); return; }
-        const d = row.data();
-        const html = `<div style="padding:1rem;">
-          <p><strong>summary_en:</strong><br>${escapeHtml(d.summary_en)}</p>
-          <p><strong>summary_fr:</strong><br>${escapeHtml(d.summary_fr)}</p>
-        </div>`;
-        row.child(html).show(); tr.addClass('shown');
-      });
-
-      // Weak chart + table
-      const weak = queryAll(db, `SELECT owner_org,
-        SUM(tracking_number='c') as c,
-        SUM(tracking_number='1') as one_,
-        SUM(tracking_number='0') as zero_,
-        SUM(tracking_number='NA') as NA_,
-        SUM(tracking_number='na') as na_,
-        SUM(tracking_number='-') as dash_,
-        SUM(tracking_number='REDACTED') as red_,
-        SUM(tracking_number='[REDACTED]') as bred_,
-        SUM(tracking_number='TBD-PM-00') as tbd_
-        FROM weak_matches GROUP BY owner_org ORDER BY owner_org`);
-
-      const owners = weak.map(r=>r.owner_org);
-      const series = {
-        "c": weak.map(r=>r.c),
-        "1": weak.map(r=>r.one_),
-        "0": weak.map(r=>r.zero_),
-        "NA": weak.map(r=>r.NA_),
-        "na": weak.map(r=>r.na_),
-        "-": weak.map(r=>r.dash_),
-        "REDACTED": weak.map(r=>r.red_),
-        "[REDACTED]": weak.map(r=>r.bred_),
-        "TBD-PM-00": weak.map(r=>r.tbd_)
-      };
-      const colors = ["#8ecae6","#219ebc","#023047","#ffb703","#fb8500","#90be6d","#277da1","#577590","#f94144"];
-
-      new Chart(document.getElementById("weakChart"),{
-        type:"bar",
-        data:{labels:owners,
-          datasets:Object.keys(series).map((k,i)=>({label:k,data:series[k],backgroundColor:colors[i],stack:"weak"}))},
-        options:{responsive:true,maintainAspectRatio:false,
-          scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}},
-          plugins:{title:{display:true,text:"Weak BN IDs per Org"}}}
-      });
-
-      const tbody = document.querySelector("#weakTable tbody");
-      weak.forEach(r=>{
-        const total = r.c+r.one_+r.zero_+r.NA_+r.na_+r.dash_+r.red_+r.bred_+r.tbd_;
-        const tr = document.createElement("tr");
-        [r.owner_org,r.c,r.one_,r.zero_,r.NA_,r.na_,r.dash_,r.red_,r.bred_,r.tbd_,total]
-          .forEach(c=>{ const td=document.createElement("td"); td.textContent=c; tr.appendChild(td);});
-        tbody.appendChild(tr);
-      });
-    })();
-  </script>
+  <!--REPORT_SCRIPT-->
 </body>
 </html>

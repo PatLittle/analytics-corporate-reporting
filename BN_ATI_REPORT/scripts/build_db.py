@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import os
 import re
 import time
 import sqlite3
@@ -85,38 +84,53 @@ def fetch_doccloud_table() -> pd.DataFrame:
     We try to read owner_org / request_number / tracking_number from doc.data (metadata).
     If not present, we leave them empty (no join for those rows).
     """
-    print("🔎 DocumentCloud: querying...")
-    client = DocumentCloud()  # uses env auth (username/password or token)
-    docs = client.documents.search(query=DOCCLOUD_QUERY, per_page=DOCCLOUD_PER_PAGE)
+    try:
+        print("🔎 DocumentCloud: querying...")
+        client = DocumentCloud()  # uses env auth (username/password or token)
+        docs = client.documents.search(query=DOCCLOUD_QUERY, per_page=DOCCLOUD_PER_PAGE)
 
-    recs = []
-    for d in docs:
-        # safe access to custom metadata
-        data = getattr(d, "data", None) or {}
-        # Normalize keys we care about
-        owner_org = str(data.get("owner_org", "")).strip()
-        request_number = str(data.get("request_number", "")).strip()
-        tracking_number = str(data.get("tracking_number", "")).strip()
-        open_url = str(data.get("open_by_default_url", "")).strip()
+        recs = []
+        for d in docs:
+            data = getattr(d, "data", None) or {}
+            owner_org = str(data.get("owner_org", "")).strip()
+            request_number = str(data.get("request_number", "")).strip()
+            tracking_number = str(data.get("tracking_number", "")).strip()
+            open_url = str(data.get("open_by_default_url", "")).strip()
 
-        recs.append({
-            "owner_org": owner_org,
-            "request_number": request_number,
-            "tracking_number": tracking_number,
-            "open_by_default_url": open_url,
-            "open_by_default_flag": 1 if open_url else 0,
-        })
+            recs.append({
+                "owner_org": owner_org,
+                "request_number": request_number,
+                "tracking_number": tracking_number,
+                "open_by_default_url": open_url,
+                "open_by_default_flag": 1 if open_url else 0,
+            })
 
-    df = pd.DataFrame(recs, dtype=str)
-    if df.empty:
-        df = pd.DataFrame(columns=[
-            "owner_org", "request_number", "tracking_number",
-            "open_by_default_url", "open_by_default_flag"
-        ])
-    else:
-        df["open_by_default_flag"] = df["open_by_default_flag"].astype(int)
-    print(f"DocumentCloud rows: {len(df):,}")
-    return df.fillna("")
+        df = pd.DataFrame(recs, dtype=str)
+        if df.empty:
+            df = pd.DataFrame(
+                columns=[
+                    "owner_org",
+                    "request_number",
+                    "tracking_number",
+                    "open_by_default_url",
+                    "open_by_default_flag",
+                ]
+            )
+        else:
+            df["open_by_default_flag"] = df["open_by_default_flag"].astype(int)
+        print(f"DocumentCloud rows: {len(df):,}")
+        return df.fillna("")
+    except Exception as err:  # network/auth failures shouldn't break build
+        print(f"⚠️  DocumentCloud query failed: {err}")
+        return pd.DataFrame(
+            columns=[
+                "owner_org",
+                "request_number",
+                "tracking_number",
+                "open_by_default_url",
+                "open_by_default_flag",
+            ]
+        )
 
 
 # --------------------
@@ -331,7 +345,7 @@ def main() -> None:
     """)
 
     counts_common: Dict[str, int] = {
-        "A_rows": int(len(download_csv_df(A_URL))),
+        "A_rows": int(len(dfA)),
         "B_rows": int(len(dfB)),
         "C_rows": int(len(dfC)),
         "BC_rows": int(len(dfBC)),
@@ -339,8 +353,10 @@ def main() -> None:
         "weak_matches": int(len(df_weak)),
         "strong_matches": int(len(df_strong)),
     }
-    cur.executemany("INSERT INTO meta_counts(key,value) VALUES (?,?)",
-                    [(k, str(v)) for k, v in counts_common.items()] + [("build_date", date.today().isoformat())])
+    cur.executemany(
+        "INSERT INTO meta_counts(key,value) VALUES (?,?)",
+        [(k, str(v)) for k, v in counts_common.items()] + [("build_date", date.today().isoformat())],
+    )
 
     con.commit()
     con.close()
