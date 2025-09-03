@@ -127,7 +127,7 @@ xychart-beta
     title "Open Maps Views by Jurisdiction 🟦Fed 🟩Prov 🟥Muni"
     x-axis """
 x_axis_labels_mapviews = []
-for year, month in jurisdiction_mapviews[['year', 'month']].drop_duplicates().sort_values(['year', 'month'], ascending=[False, False]).values.tolist()[-12:]:
+for year, month in jurisdiction_mapviews[['year', 'month']].drop_duplicates().sort_values(['year', 'month'], ascending=[True, True]).values.tolist()[-12:]:
     x_axis_labels_mapviews.append(str(year) + '-' + str(month))
 mermaid_mapviews += "[" + ", ".join(x_axis_labels_mapviews[::-1]) + "]"
 mermaid_mapviews += """
@@ -135,7 +135,7 @@ mermaid_mapviews += """
 for jurisdiction in jurisdiction_mapviews['jurisdiction'].unique():
     jurisdiction_df = jurisdiction_mapviews[jurisdiction_mapviews['jurisdiction'] == jurisdiction]
     mapviews_values = []
-    for year, month in jurisdiction_mapviews[['year', 'month']].drop_duplicates().sort_values(['year', 'month'], ascending=[False, False]).values.tolist()[-12:]:
+    for year, month in jurisdiction_mapviews[['year', 'month']].drop_duplicates().sort_values(['year', 'month'], ascending=[True, True]).values.tolist()[-12:]:
         mapview_for_month = jurisdiction_df[(jurisdiction_df['year'] == year) & (jurisdiction_df['month'] == month)]['Open Maps Views'].sum()
         mapviews_values.append(str(mapview_for_month))
     mermaid_mapviews += """
