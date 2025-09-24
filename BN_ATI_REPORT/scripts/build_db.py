@@ -95,8 +95,8 @@ def fetch_doccloud_table() -> pd.DataFrame:
             owner_org = str(data.get("owner_org", "")).strip()
             request_number = str(data.get("request_number", "")).strip()
             tracking_number = str(data.get("tracking_number", "")).strip()
-            open_url = str(data.get("open_by_default_url", "")).strip()
-
+            open_url = str(d.canonical_url).strip()
+            
             recs.append({
                 "owner_org": owner_org,
                 "request_number": request_number,
