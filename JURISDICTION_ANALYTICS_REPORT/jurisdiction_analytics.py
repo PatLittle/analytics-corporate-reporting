@@ -58,7 +58,7 @@ jurisdiction_mapviews = jurisdiction_mapviews.rename(columns={'pageviews': 'Open
 jurisdiction_mapviews = jurisdiction_mapviews.groupby(['year', 'month', 'jurisdiction'])['Open Maps Views'].sum().reset_index()
 
 jurisdiction_mapviews = jurisdiction_mapviews.sort_values(['year', 'month', 'Open Maps Views'],
-                            ascending=[False, False, False])
+                            ascending=[True, True, False])
 
 
 
