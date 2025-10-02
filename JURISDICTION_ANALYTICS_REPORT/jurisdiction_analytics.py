@@ -54,12 +54,13 @@ jurisdiction_mapviews = pd.merge(dfs['Open Maps Views'],
                              dfs['datasets metadata'][['id', 'jurisdiction']],
                              on='id',
                              how='left')
-
-jurisdiction_mapviews = jurisdiction_mapviews.groupby(['year', 'month', 'jurisdiction'])['pageviews'].sum().reset_index()
-
-jurisdiction_mapviews = jurisdiction_mapviews.sort_values(['year', 'month', 'pageviews'],ascending=[False, False, False])
-
 jurisdiction_mapviews = jurisdiction_mapviews.rename(columns={'pageviews': 'Open Maps Views'})
+jurisdiction_mapviews = jurisdiction_mapviews.groupby(['year', 'month', 'jurisdiction'])['Open Maps Views'].sum().reset_index()
+
+jurisdiction_mapviews = jurisdiction_mapviews.sort_values(['year', 'month', 'Open Maps Views'],
+                            ascending=[False, False, False])
+
+
 
 # Save DataFrames to individual CSV files without index
 jurisdiction_dl.to_csv('JURISDICTION_ANALYTICS_REPORT/jurisdiction_dl.csv', index=False)
