@@ -2,37 +2,54 @@ name: run pd count
 
 on:
   schedule:
-    - cron: '0 11 * * *'  # everyday
+    - cron: '0 11 * * *'  # everyday at 11:00 UTC
   workflow_dispatch:
+
+permissions:
+  contents: write  # needed to push commits
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-
-      - name: checkout repo content
-        uses: actions/checkout@v3 # checkout the repository content to github runner
-
-      - name: setup python
-        uses: actions/setup-python@v4
+      - name: Checkout only Corporate_reporting
+        uses: actions/checkout@v4
         with:
-          python-version: '3.x' # install the python version needed
-          
-      - name: install python packages
+          fetch-depth: 1
+          sparse-checkout: |
+            Corporate_reporting
+          sparse-checkout-cone: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # If you want faster runs, you can cache pip; uncomment the step below and adjust the key when you change packages/versions.
+      # - name: Cache pip
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ~/.cache/pip
+      #     key: ${{ runner.os }}-pip-${{ hashFiles('**/manual-pip-packages.lock') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-pip-
+
+      - name: Install Python packages (manual list)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirement.txt
-          
-      - name: execute py script # run pd_count.py and corporate_report.py
-        
-        run:  python Corporate_reporting/pd_count/pd_count.py
-          
-          
-      - name: commit files
+          # >>> Edit this list to match your exact deps and versions <<<
+          pip install \
+            pandas==2.2.3 \
+            requests==2.32.3 \
+            python-dateutil==2.9.0.post0
+
+      - name: Execute pd_count.py
+        run: python Corporate_reporting/pd_count/pd_count.py
+
+      - name: Commit and push changes (if any)
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add -A
-          git commit -a -m "updates" --allow-empty
-          git push -f
-       
+          git commit -m "updates" --allow-empty
+          git push
