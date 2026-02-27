@@ -4,14 +4,32 @@ on:
   schedule:
     - cron: '0 11 * * *'  # everyday
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run against and push updates to'
+        required: true
+        default: 'main'
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: determine target branch
+        id: target_branch
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "branch=${{ github.event.inputs.branch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: checkout repo content
-        uses: actions/checkout@v3 # checkout the repository content to github runner
+        uses: actions/checkout@v4 # checkout the repository content to github runner
+        with:
+          ref: ${{ steps.target_branch.outputs.branch }}
 
       - name: setup python
         uses: actions/setup-python@v5
@@ -33,6 +51,6 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add -A
-          git commit -a -m "updates" --allow-empty
-          git push -f
+          git commit -m "updates" --allow-empty
+          git push origin HEAD:${{ steps.target_branch.outputs.branch }}
        
