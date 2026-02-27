@@ -7,7 +7,7 @@ import io
 from collections import defaultdict
 from datetime import *
 import pandas as pd
-import tempfile
+from urllib.parse import urlparse
 
 
 class Proactive_disclosure:
@@ -21,30 +21,26 @@ class Proactive_disclosure:
         self.df_melt = pd.DataFrame()
         self.df_unpd_org = pd.DataFrame()
         self.record_added = False
+        self.session = requests.Session()
 
     def download(self):
         url = "https://open.canada.ca/static/od-do-canada.jsonl.gz"
-        r = requests.get(url, stream=True)
-        f = tempfile.NamedTemporaryFile(delete=False)
-        for chunk in r.iter_content(1024 * 64):
-            f.write(chunk)
-        f.close()
-        records = []
-        fname = f.name
         records = []
         try:
-            with gzip.open(fname, 'rb') as fd:
-                for line in fd:
-                    records.append(json.loads(line.decode('utf-8')))
-                    if len(records) >= 500:
-                        yield (records)
-                        records = []
-            if len(records) > 0:
-                yield (records)
-                records = []
+            with self.session.get(url, stream=True, timeout=(10, 120)) as response:
+                response.raise_for_status()
+                response.raw.decode_content = False
+                with gzip.GzipFile(fileobj=response.raw) as fd:
+                    for line in fd:
+                        records.append(json.loads(line.decode('utf-8')))
+                        if len(records) >= 500:
+                            yield records
+                            records = []
+            if records:
+                yield records
         except GeneratorExit:
             pass
-        except:
+        except Exception:
             import traceback
             traceback.print_exc()
             print('error reading downloaded file')
@@ -53,21 +49,18 @@ class Proactive_disclosure:
     # Structured PDs download
     def filedow(self, reqURL):
         try:
-            req = requests.get(reqURL)
-            filename = reqURL.split("/")[-1]
-            filename = filename.split(".")[0]
+            req = self.session.get(reqURL, timeout=(10, 120))
+            req.raise_for_status()
+            filename = os.path.basename(urlparse(reqURL).path)
+            filename = filename.split(".")[0].strip()
             filename = "_".join(filename.split("-"))
             self.headers.append(filename)
-            if req.status_code == 200:
-                df = pd.read_csv(io.StringIO(
-                    req.content.decode("utf-8")), low_memory=False)
-                if filename != "adminaircraft":                  
-                    df_agg = df.groupby(
-                        "owner_org").size().reset_index(name="count")
-                    df_agg["type"] = filename
-                    self.df_pd_org = pd.concat(
-                        [self.df_pd_org, df_agg], ignore_index=True)
-                   
+            df = pd.read_csv(io.StringIO(req.content.decode("utf-8")), low_memory=False)
+            if filename != "adminaircraft":
+                df_agg = df.groupby("owner_org").size().reset_index(name="count")
+                df_agg["type"] = filename
+                self.df_pd_org = pd.concat([self.df_pd_org, df_agg], ignore_index=True)
+
             return filename, len(df)
         except Exception as e:
             print(e)
@@ -91,7 +84,7 @@ class Proactive_disclosure:
             df.sort_values(by='date', axis=0, ascending=False, inplace=True)
             df.reset_index(drop=True, inplace=True)
         if not combined:
-            header = col_head.remove("date")
+            header = [col for col in col_head if col != "date"]
             df_unpivot = pd.melt(df, id_vars=['date'], value_vars=header)
             self.df_melt = pd.concat(
                 [self.df_melt, df_unpivot], ignore_index=True)
@@ -101,30 +94,40 @@ class Proactive_disclosure:
 
     def unstruct_pd(self):  # Non Structured pd types downloads and count
         total = 0
-        non_struc_pd = []
+        non_structured_counts = defaultdict(int)
+        unstructured_org_counts = defaultdict(lambda: defaultdict(int))
         pd_col = ["date"]
         pd_col.extend(self.pd_list)
+
         for records in self.download():
             for record in records:
                 try:
-                    non_struc_pd.append([record["organization"]["name"], record["organization"]["title"],
-                                         record["title"], record["type"], record["collection"],])
+                    collection = record["collection"]
+                    if collection not in self.pd_list:
+                        continue
+                    owner_org = record["organization"]["name"]
+                    non_structured_counts[collection] += 1
+                    unstructured_org_counts[owner_org][collection] += 1
                 except IndexError as e:
                     print(e)
                 except Exception as e:
                     print(e)
-        df = pd.DataFrame(non_struc_pd, columns=[
-            "owner_org", "organization", "title", "type", "collection"])        
+
+        unpd_org_rows = []
         for elmt in self.pd_list:
-            elmt_df = df[df['collection'] == elmt]
-            elmt_agg = elmt_df.groupby(
-                        "owner_org").size().reset_index(name="count")
-            elmt_agg['type'] = elmt
-            self.df_unpd_org = pd.concat(
-                        [self.df_unpd_org, elmt_agg], ignore_index=True)
-            total += len(elmt_df)
-            self.unstruct_pd_count.append(len(elmt_df))
-        pd_col.extend(["total"])        
+            current_count = non_structured_counts[elmt]
+            self.unstruct_pd_count.append(current_count)
+            total += current_count
+
+            for owner_org, counts in unstructured_org_counts.items():
+                count = counts.get(elmt, 0)
+                if count:
+                    unpd_org_rows.append({"owner_org": owner_org, "count": count, "type": elmt})
+
+        if unpd_org_rows:
+            self.df_unpd_org = pd.DataFrame(unpd_org_rows)
+
+        pd_col.extend(["total"])
         self.unstruct_pd_count.append(total)
         self.add_record(self.unstruct_pd_count, os.path.join("Corporate_reporting", "pd_count", "nonstruc_pd.csv"), pd_col)
         return total
