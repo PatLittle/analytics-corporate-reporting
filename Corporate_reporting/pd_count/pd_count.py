@@ -4,6 +4,7 @@ import sys
 import requests
 import os
 import io
+import subprocess
 from collections import defaultdict
 from datetime import *
 import pandas as pd
@@ -23,12 +24,31 @@ class Proactive_disclosure:
         self.record_added = False
         self.session = requests.Session()
 
+    def _print_memory(self):
+        print("[pd_count] Memory snapshot (free -h):")
+        mem = subprocess.run(["free", "-h"], capture_output=True, text=True)
+        print(mem.stdout.strip())
+
+    def _print_git_status(self):
+        print("[pd_count] Git status after file write:")
+        status = subprocess.run(["git", "status", "--short"], capture_output=True, text=True)
+        print(status.stdout.strip() if status.stdout.strip() else "(clean)")
+
+    def _log_download(self, label):
+        print(f"[pd_count] Downloaded: {label}")
+        self._print_memory()
+
+    def _log_file_write(self, path):
+        print(f"[pd_count] Wrote file: {path}")
+        self._print_git_status()
+
     def download(self):
         url = "https://open.canada.ca/static/od-do-canada.jsonl.gz"
         records = []
         try:
             with self.session.get(url, stream=True, timeout=(10, 120)) as response:
                 response.raise_for_status()
+                self._log_download(url)
                 response.raw.decode_content = False
                 with gzip.GzipFile(fileobj=response.raw) as fd:
                     for line in fd:
@@ -55,6 +75,7 @@ class Proactive_disclosure:
             filename = filename.split(".")[0].strip()
             filename = "_".join(filename.split("-"))
             self.headers.append(filename)
+            self._log_download(reqURL)
             df = pd.read_csv(io.StringIO(req.content.decode("utf-8")), low_memory=False)
             if filename != "adminaircraft":
                 df_agg = df.groupby("owner_org").size().reset_index(name="count")
@@ -71,6 +92,7 @@ class Proactive_disclosure:
             print("no file should create")
             df = pd.DataFrame(columns=col_head)
             df.to_csv(csv_file, index=False, encoding="utf-8")
+            self._log_file_write(csv_file)
 
     def add_record(self, row, csv_file, col_head, combined=False):
         self.csv_file_create(csv_file, col_head)
@@ -89,6 +111,7 @@ class Proactive_disclosure:
             self.df_melt = pd.concat(
                 [self.df_melt, df_unpivot], ignore_index=True)
         df.to_csv(csv_file, index=False)
+        self._log_file_write(csv_file)
         self.record_added = True
         return
 
@@ -135,7 +158,7 @@ class Proactive_disclosure:
     def struct_pd(self):
         pd_name = []
         row = [self.current_date]
-        total = 0       
+        total = 0
         with open(os.path.join("Corporate_reporting", "pd_count", "links.txt"), "r") as f:
             Urls = [line.rstrip('\n') for line in f]
         f.close
@@ -160,26 +183,28 @@ class Proactive_disclosure:
         if self.record_added:
             self.df_melt.sort_values(
                 by='date', axis=0, ascending=False, inplace=True)
-            #print (self.df_melt.head())
-            self.df_melt.rename(columns = {"variable":"pd_type", "value": "pd_count"}, inplace=True)
-            print (self.df_melt.head())
+            self.df_melt.rename(columns={"variable": "pd_type", "value": "pd_count"}, inplace=True)
+            print(self.df_melt.head())
             self.df_melt = self.df_melt.query(f'pd_type != "total"')
-            self.df_melt.to_csv(os.path.join("Corporate_reporting", "pd_count", "unpivoted_pd.csv"),
-                                encoding="utf-8", index=False)
+            unpivoted_path = os.path.join("Corporate_reporting", "pd_count", "unpivoted_pd.csv")
+            self.df_melt.to_csv(unpivoted_path, encoding="utf-8", index=False)
+            self._log_file_write(unpivoted_path)
         self.add_record(all_pd, os.path.join("Corporate_reporting", "pd_count", "all_pd.csv"), [
             "date", "structured_pd", "non_structured_pd", "total"], True)
 
     def pd_per_dept(self):
         all_pd_df = pd.concat(
-                        [self.df_unpd_org, self.df_pd_org], ignore_index=True)        
-        df_dpt = all_pd_df.pivot(index="owner_org", columns="type")        
+                        [self.df_unpd_org, self.df_pd_org], ignore_index=True)
+        df_dpt = all_pd_df.pivot(index="owner_org", columns="type")
         df_dpt = df_dpt['count'].reset_index()
         df_dpt.columns.name = None
         df_dpt.fillna(0, inplace=True)
-        df_dpt = df_dpt.astype({'transition':'int', 'transition_deputy':'int', 'parliament_report':'int',
-                        'parliament_committee':'int', 'parliament_committee_deputy':'int','ati_all': 'int', 'ati_nil': 'int', 'briefingt': 'int', 'contracts': 'int', 'contracts_nil': 'int', 'contractsa': 'int', 'dac': 'int', 'grants': 'int', 'grants_nil': 'int',
+        df_dpt = df_dpt.astype({'transition': 'int', 'transition_deputy': 'int', 'parliament_report': 'int',
+                        'parliament_committee': 'int', 'parliament_committee_deputy': 'int', 'ati_all': 'int', 'ati_nil': 'int', 'briefingt': 'int', 'contracts': 'int', 'contracts_nil': 'int', 'contractsa': 'int', 'dac': 'int', 'grants': 'int', 'grants_nil': 'int',
                                 'hospitalityq': 'int', 'hospitalityq_nil': 'int', 'qpnotes': 'int', 'qpnotes_nil': 'int', 'reclassification': 'int', 'reclassification_nil': 'int', 'travela': 'int', 'travelq': 'int', 'travelq_nil': 'int', 'wrongdoing': 'int'})
-        df_dpt.to_csv(os.path.join("Corporate_reporting", "pd_count", "pd_per_dept.csv"), encoding='utf-8', index=False)
+        per_dept_path = os.path.join("Corporate_reporting", "pd_count", "pd_per_dept.csv")
+        df_dpt.to_csv(per_dept_path, encoding='utf-8', index=False)
+        self._log_file_write(per_dept_path)
 
 
 def main():
