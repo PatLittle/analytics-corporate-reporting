@@ -14,11 +14,6 @@ jobs:
     steps:
       - name: Checkout only Corporate_reporting
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          sparse-checkout: |
-            Corporate_reporting
-          sparse-checkout-cone: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,7 +31,6 @@ jobs:
 
       - name: Install Python packages (manual list)
         run: |
-          python -m pip install --upgrade pip
           # >>> Edit this list to match your exact deps and versions <<<
           pip install \
             pandas==2.2.3 \
